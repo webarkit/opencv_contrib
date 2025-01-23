@@ -194,7 +194,8 @@ namespace cv {
                                     float tmp_total = 0;
 
                                     for ( int channel = 0; channel < nb_channels; channel++) {
-                                        tmp_total += pow(p[j * nb_channels + channel] - p2[j2 * nb_channels + channel], 2);
+                                        float tmp_diff = p[j * nb_channels + channel] - p2[j2 * nb_channels + channel];
+                                        tmp_total += tmp_diff * tmp_diff;
                                     }
 
                                     float diff = 0;
@@ -219,7 +220,7 @@ namespace cv {
                 // Sort edges
                 std::sort(edges, edges + nb_edges);
 
-                // Create a set with all point (by default mapped to themselfs)
+                // Create a set with all point (by default mapped to themselves)
                 *es = new PointSet(img_filtered.cols * img_filtered.rows);
 
                 // Thresholds

@@ -39,14 +39,14 @@
 //
 //M*/
 
+#include "precomp.hpp"
 #include "tldModel.hpp"
 
-#include <opencv2/core/utility.hpp>
+namespace cv {
+inline namespace tracking {
+namespace impl {
+namespace tld {
 
-namespace cv
-{
-	namespace tld
-	{
 		//Constructor
 		TrackerTLDModel::TrackerTLDModel(TrackerTLD::Params params, const Mat& image, const Rect2d& boundingBox, Size minSize):
 			timeStampPositiveNext(0), timeStampNegativeNext(0), minSize_(minSize), params_(params), boundingBox_(boundingBox)
@@ -150,7 +150,6 @@ namespace cv
 		void TrackerTLDModel::integrateRelabeled(Mat& img, Mat& imgBlurred, const std::vector<TLDDetector::LabeledPatch>& patches)
 		{
 			Mat_<uchar> standardPatch(STANDARD_PATCH_SIZE, STANDARD_PATCH_SIZE), blurredPatch(minSize_);
-			int positiveIntoModel = 0, negativeIntoModel = 0, positiveIntoEnsemble = 0, negativeIntoEnsemble = 0;
 			for (int k = 0; k < (int)patches.size(); k++)
 			{
 				if (patches[k].shouldBeIntegrated)
@@ -158,12 +157,10 @@ namespace cv
 					resample(img, patches[k].rect, standardPatch);
 					if (patches[k].isObject)
 					{
-						positiveIntoModel++;
 						pushIntoModel(standardPatch, true);
 					}
 					else
 					{
-						negativeIntoModel++;
 						pushIntoModel(standardPatch, false);
 					}
 				}
@@ -175,10 +172,6 @@ namespace cv
 #endif
 				{
 					resample(imgBlurred, patches[k].rect, blurredPatch);
-					if (patches[k].isObject)
-						positiveIntoEnsemble++;
-					else
-						negativeIntoEnsemble++;
 					for (int i = 0; i < (int)detector->classifiers.size(); i++)
 						detector->classifiers[i].integrate(blurredPatch, patches[k].isObject);
 				}
@@ -212,7 +205,6 @@ namespace cv
 
 		void TrackerTLDModel::integrateAdditional(const std::vector<Mat_<uchar> >& eForModel, const std::vector<Mat_<uchar> >& eForEnsemble, bool isPositive)
 		{
-			int positiveIntoModel = 0, negativeIntoModel = 0, positiveIntoEnsemble = 0, negativeIntoEnsemble = 0;
 			if ((int)eForModel.size() == 0) return;
 
 			srValues.resize (eForModel.size ());
@@ -225,12 +217,10 @@ namespace cv
 				{
 					if (isPositive)
 					{
-						positiveIntoModel++;
 						pushIntoModel(eForModel[k], true);
 					}
 					else
 					{
-						negativeIntoModel++;
 						pushIntoModel(eForModel[k], false);
 					}
 				}
@@ -240,10 +230,6 @@ namespace cv
 				p /= detector->classifiers.size();
 				if ((p > ENSEMBLE_THRESHOLD) != isPositive)
 				{
-					if (isPositive)
-						positiveIntoEnsemble++;
-					else
-						negativeIntoEnsemble++;
 					for (int i = 0; i < (int)detector->classifiers.size(); i++)
 						detector->classifiers[i].integrate(eForEnsemble[k], isPositive);
 				}
@@ -253,7 +239,6 @@ namespace cv
 #ifdef HAVE_OPENCL
 		void TrackerTLDModel::ocl_integrateAdditional(const std::vector<Mat_<uchar> >& eForModel, const std::vector<Mat_<uchar> >& eForEnsemble, bool isPositive)
 		{
-			int positiveIntoModel = 0, negativeIntoModel = 0, positiveIntoEnsemble = 0, negativeIntoEnsemble = 0;
 			if ((int)eForModel.size() == 0) return;
 
 			//Prepare batch of patches
@@ -279,12 +264,10 @@ namespace cv
 				{
 					if (isPositive)
 					{
-						positiveIntoModel++;
 						pushIntoModel(eForModel[k], true);
 					}
 					else
 					{
-						negativeIntoModel++;
 						pushIntoModel(eForModel[k], false);
 					}
 				}
@@ -294,10 +277,6 @@ namespace cv
 				p /= detector->classifiers.size();
 				if ((p > ENSEMBLE_THRESHOLD) != isPositive)
 				{
-					if (isPositive)
-						positiveIntoEnsemble++;
-					else
-						negativeIntoEnsemble++;
 					for (int i = 0; i < (int)detector->classifiers.size(); i++)
 						detector->classifiers[i].integrate(eForEnsemble[k], isPositive);
 				}
@@ -361,5 +340,5 @@ namespace cv
 			dfprintf((port, "\tpositiveExamples.size() = %d\n", (int)positiveExamples.size()));
 			dfprintf((port, "\tnegativeExamples.size() = %d\n", (int)negativeExamples.size()));
 		}
-	}
-}
+
+}}}} // namespace

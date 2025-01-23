@@ -46,24 +46,35 @@
 
 #include "opencv2/cudacodec.hpp"
 
-struct InputMediaStream_FFMPEG;
-
 namespace cv { namespace cudacodec { namespace detail {
 
 class FFmpegVideoSource : public RawVideoSource
 {
 public:
-    FFmpegVideoSource(const String& fname);
+    FFmpegVideoSource(const String& fname, const std::vector<int>& params, const int iMaxStartFrame);
     ~FFmpegVideoSource();
 
-    bool getNextPacket(unsigned char** data, int* size, bool* endOfFile) CV_OVERRIDE;
+    bool getNextPacket(unsigned char** data, size_t* size) CV_OVERRIDE;
+
+    bool lastPacketContainsKeyFrame() const;
 
     FormatInfo format() const CV_OVERRIDE;
 
+    void updateFormat(const FormatInfo& videoFormat) CV_OVERRIDE;
+
+    void getExtraData(cv::Mat& _extraData) const CV_OVERRIDE { _extraData = extraData; }
+
+    bool get(const int propertyId, double& propertyVal) const;
+
+    int getFirstFrameIdx() const { return firstFrameIdx; }
+
 private:
     FormatInfo format_;
-
-    InputMediaStream_FFMPEG* stream_;
+    VideoCapture cap;
+    Mat rawFrame, extraData, dataWithHeader;
+    int iFrame = 0;
+    std::vector<int> videoCaptureParams;
+    int firstFrameIdx = 0;
 };
 
 }}}

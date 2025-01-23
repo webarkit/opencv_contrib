@@ -152,7 +152,7 @@ struct HOG : testing::TestWithParam<cv::cuda::DeviceInfo>
 };
 
 // desabled while resize does not fixed
-CUDA_TEST_P(HOG, DISABLED_Detect)
+CUDA_TEST_P(HOG, detect)
 {
     cv::Mat img_rgb = readImage("hog/road.png");
     ASSERT_FALSE(img_rgb.empty());
@@ -222,7 +222,7 @@ INSTANTIATE_TEST_CASE_P(CUDA_ObjDetect, HOG, ALL_DEVICES);
 */
 //============== caltech hog tests =====================//
 
-struct CalTech : public ::testing::TestWithParam<tuple<cv::cuda::DeviceInfo, std::string> >
+struct CalTech : public ::testing::TestWithParam<tuple<cv::cuda::DeviceInfo, std::string, bool>>
 {
     cv::cuda::DeviceInfo devInfo;
     cv::Mat img;
@@ -232,7 +232,13 @@ struct CalTech : public ::testing::TestWithParam<tuple<cv::cuda::DeviceInfo, std
         devInfo = GET_PARAM(0);
         cv::cuda::setDevice(devInfo.deviceID());
 
-        img = readImage(GET_PARAM(1), cv::IMREAD_GRAYSCALE);
+        const bool grayScale = GET_PARAM(2);
+        if(grayScale)
+            img = readImage(GET_PARAM(1), IMREAD_GRAYSCALE);
+        else {
+            Mat imgBgr = readImage(GET_PARAM(1));
+            cv::cvtColor(imgBgr, img, COLOR_BGR2BGRA);
+        }
         ASSERT_FALSE(img.empty());
     }
 };
@@ -263,10 +269,11 @@ CUDA_TEST_P(CalTech, HOG)
 #endif
 }
 
-INSTANTIATE_TEST_CASE_P(DISABLED_detect, CalTech, testing::Combine(ALL_DEVICES,
+#define GREYSCALE true, false
+INSTANTIATE_TEST_CASE_P(detect, CalTech, testing::Combine(ALL_DEVICES,
     ::testing::Values<std::string>("caltech/image_00000009_0.png", "caltech/image_00000032_0.png",
         "caltech/image_00000165_0.png", "caltech/image_00000261_0.png", "caltech/image_00000469_0.png",
-        "caltech/image_00000527_0.png", "caltech/image_00000574_0.png")));
+        "caltech/image_00000527_0.png", "caltech/image_00000574_0.png"), testing::Values(GREYSCALE)));
 
 
 //------------------------variable GPU HOG Tests------------------------//
@@ -325,7 +332,7 @@ CUDA_TEST_P(Hog_var, HOG)
     cpu_hog.compute(c_img, cpu_desc_vec, win_stride, Size(0,0));
 }
 
-INSTANTIATE_TEST_CASE_P(DISABLED_detect, Hog_var, testing::Combine(ALL_DEVICES,
+INSTANTIATE_TEST_CASE_P(detect, Hog_var, testing::Combine(ALL_DEVICES,
     ::testing::Values<std::string>("/hog/road.png")));
 
 struct Hog_var_cell : public ::testing::TestWithParam<tuple<cv::cuda::DeviceInfo, std::string> >
@@ -465,7 +472,7 @@ CUDA_TEST_P(Hog_var_cell, HOG)
 //------------------------------------------------------------------------------
 }
 
-INSTANTIATE_TEST_CASE_P(DISABLED_detect, Hog_var_cell, testing::Combine(ALL_DEVICES,
+INSTANTIATE_TEST_CASE_P(detect, Hog_var_cell, testing::Combine(ALL_DEVICES,
     ::testing::Values<std::string>("/hog/road.png")));
 //////////////////////////////////////////////////////////////////////////////////////////
 /// LBP classifier
@@ -494,7 +501,7 @@ CUDA_TEST_P(LBP_Read_classifier, Accuracy)
     ASSERT_FALSE(d_cascade.empty());
 }
 
-INSTANTIATE_TEST_CASE_P(DISABLED_CUDA_ObjDetect, LBP_Read_classifier,
+INSTANTIATE_TEST_CASE_P(CUDA_ObjDetect, LBP_Read_classifier,
                         testing::Combine(ALL_DEVICES, testing::Values<int>(0)));
 
 
@@ -555,7 +562,7 @@ CUDA_TEST_P(LBP_classify, Accuracy)
 #endif
 }
 
-INSTANTIATE_TEST_CASE_P(DISABLED_CUDA_ObjDetect, LBP_classify,
+INSTANTIATE_TEST_CASE_P(CUDA_ObjDetect, LBP_classify,
                         testing::Combine(ALL_DEVICES, testing::Values<int>(0)));
 
 

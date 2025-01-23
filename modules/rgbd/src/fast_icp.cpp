@@ -32,7 +32,6 @@ public:
                                    InputArray oldPoints, InputArray oldNormals,
                                    InputArray newPoints, InputArray newNormals
                                    ) const override;
-
     template < typename T >
     bool estimateTransformT(cv::Affine3f& transform,
                             const vector<T>& oldPoints, const vector<T>& oldNormals,
@@ -139,7 +138,7 @@ bool ICPImpl::estimateTransformT(cv::Affine3f& transform,
 #if USE_INTRINSICS
 static inline bool fastCheck(const v_float32x4& p0, const v_float32x4& p1)
 {
-    float check = (p0.get0() + p1.get0());
+    float check = (v_get0(p0) + v_get0(p1));
     return !cvIsNaN(check);
 }
 
@@ -161,7 +160,7 @@ static inline v_float32x4 crossProduct(const v_float32x4& a, const v_float32x4& 
     v_float32x4 ayzx, azxy, byzx, bzxy;
     getCrossPerm(a, ayzx, azxy);
     getCrossPerm(b, byzx, bzxy);
-    return ayzx*bzxy - azxy*byzx;
+    return v_sub(v_mul(ayzx, bzxy), v_mul(azxy, byzx));
 }
 #else
 static inline bool fastCheck(const Point3f& p)
@@ -236,11 +235,11 @@ struct GetAbInvoker : ParallelLoopBody
 
                 //find correspondence by projecting the point
                 v_float32x4 oldCoords;
-                float pz = (v_reinterpret_as_f32(v_rotate_right<2>(v_reinterpret_as_u32(newP))).get0());
+                float pz = v_get0(v_reinterpret_as_f32(v_rotate_right<2>(v_reinterpret_as_u32(newP))));
                 // x, y, 0, 0
-                oldCoords = v_muladd(newP/v_setall_f32(pz), vfxy, vcxy);
+                oldCoords = v_muladd(v_div(newP, v_setall_f32(pz)), vfxy, vcxy);
 
-                if(!v_check_all((oldCoords >= v_setzero_f32()) & (oldCoords < vframe)))
+                if(!v_check_all(v_and(v_ge(oldCoords, v_setzero_f32()), v_lt(oldCoords, vframe))))
                     continue;
 
                 // bilinearly interpolate oldPts and oldNrm under oldCoords point
@@ -248,12 +247,12 @@ struct GetAbInvoker : ParallelLoopBody
                 v_float32x4 oldN;
                 {
                     v_int32x4 ixy = v_floor(oldCoords);
-                    v_float32x4 txy = oldCoords - v_cvt_f32(ixy);
-                    int xi = ixy.get0();
-                    int yi = v_rotate_right<1>(ixy).get0();
-                    v_float32x4 tx = v_setall_f32(txy.get0());
+                    v_float32x4 txy = v_sub(oldCoords, v_cvt_f32(ixy));
+                    int xi = v_get0(ixy);
+                    int yi = v_get0(v_rotate_right<1>(ixy));
+                    v_float32x4 tx = v_setall_f32(v_get0(txy));
                     txy = v_reinterpret_as_f32(v_rotate_right<1>(v_reinterpret_as_u32(txy)));
-                    v_float32x4 ty = v_setall_f32(txy.get0());
+                    v_float32x4 ty = v_setall_f32(v_get0(txy));
 
                     const float* prow0 = (const float*)oldPts[yi+0];
                     const float* prow1 = (const float*)oldPts[yi+1];
@@ -276,42 +275,41 @@ struct GetAbInvoker : ParallelLoopBody
 
                     // NaN check is done later
 
-                    v_float32x4 p0 = p00 + tx*(p01 - p00);
-                    v_float32x4 p1 = p10 + tx*(p11 - p10);
-                    oldP = p0 + ty*(p1 - p0);
+                    v_float32x4 p0 = v_add(p00, v_mul(tx, v_sub(p01, p00)));
+                    v_float32x4 p1 = v_add(p10, v_mul(tx, v_sub(p11, p10)));
+                    oldP = v_add(p0, v_mul(ty, v_sub(p1, p0)));
 
-                    v_float32x4 n0 = n00 + tx*(n01 - n00);
-                    v_float32x4 n1 = n10 + tx*(n11 - n10);
-                    oldN = n0 + ty*(n1 - n0);
+                    v_float32x4 n0 = v_add(n00, v_mul(tx, v_sub(n01, n00)));
+                    v_float32x4 n1 = v_add(n10, v_mul(tx, v_sub(n11, n10)));
+                    oldN = v_add(n0, v_mul(ty, v_sub(n1, n0)));
                 }
 
                 bool oldPNcheck = fastCheck(oldP, oldN);
 
                 //filter by distance
-                v_float32x4 diff = newP - oldP;
-                bool distCheck = !(v_reduce_sum(diff*diff) > sqThresh);
+                v_float32x4 diff = v_sub(newP, oldP);
+                bool distCheck = !(v_reduce_sum(v_mul(diff, diff)) > sqThresh);
 
                 //filter by angle
-                bool angleCheck = !(abs(v_reduce_sum(newN*oldN)) < cosThresh);
+                bool angleCheck = !(abs(v_reduce_sum(v_mul(newN, oldN))) < cosThresh);
 
                 if(!(oldPNcheck && distCheck && angleCheck))
                     continue;
 
                 // build point-wise vector ab = [ A | b ]
-
                 v_float32x4 VxNv = crossProduct(newP, oldN);
                 Point3f VxN;
-                VxN.x = VxNv.get0();
-                VxN.y = v_reinterpret_as_f32(v_extract<1>(v_reinterpret_as_u32(VxNv), v_setzero_u32())).get0();
-                VxN.z = v_reinterpret_as_f32(v_extract<2>(v_reinterpret_as_u32(VxNv), v_setzero_u32())).get0();
+                VxN.x = v_get0(VxNv);
+                VxN.y = v_get0(v_reinterpret_as_f32(v_extract<1>(v_reinterpret_as_u32(VxNv), v_setzero_u32())));
+                VxN.z = v_get0(v_reinterpret_as_f32(v_extract<2>(v_reinterpret_as_u32(VxNv), v_setzero_u32())));
 
-                float dotp = -v_reduce_sum(oldN*diff);
+                float dotp = -v_reduce_sum(v_mul(oldN, diff));
 
                 // build point-wise upper-triangle matrix [ab^T * ab] w/o last row
                 // which is [A^T*A | A^T*b]
                 // and gather sum
 
-                v_float32x4 vd = VxNv | v_float32x4(0, 0, 0, dotp);
+                v_float32x4 vd = v_or(VxNv, v_float32x4(0, 0, 0, dotp));
                 v_float32x4 n = oldN;
                 v_float32x4 nyzx;
                 {
@@ -449,7 +447,6 @@ struct GetAbInvoker : ParallelLoopBody
                 //try to optimize
                 Point3f VxN = newP.cross(oldN);
                 float ab[7] = {VxN.x, VxN.y, VxN.z, oldN.x, oldN.y, oldN.z, oldN.dot(-diff)};
-
                 // build point-wise upper-triangle matrix [ab^T * ab] w/o last row
                 // which is [A^T*A | A^T*b]
                 // and gather sum
@@ -507,7 +504,7 @@ void ICPImpl::getAb<Mat>(const Mat& oldPts, const Mat& oldNrm, const Mat& newPts
     const Normals np(newPts), nn(newNrm);
     GetAbInvoker invoker(sumAB, mutex, op, on, np, nn, pose,
                          intrinsics.scale(level).makeProjector(),
-                         distanceThreshold*distanceThreshold, cos(angleThreshold));
+                         distanceThreshold*distanceThreshold, std::cos(angleThreshold));
     Range range(0, newPts.rows);
     const int nstripes = -1;
     parallel_for_(range, invoker, nstripes);
@@ -545,7 +542,7 @@ void ICPImpl::getAb<UMat>(const UMat& oldPts, const UMat& oldNrm, const UMat& ne
 
     cv::String errorStr;
     ocl::ProgramSource source = ocl::rgbd::icp_oclsrc;
-    cv::String options = "-cl-fast-relaxed-math -cl-mad-enable";
+    cv::String options = "-cl-mad-enable";
     ocl::Kernel k;
     k.create("getAb", source, options, &errorStr);
 
@@ -593,9 +590,8 @@ void ICPImpl::getAb<UMat>(const UMat& oldPts, const UMat& oldNrm, const UMat& ne
                                     sizeof(pose.matrix.val)),
            fxy.val, cxy.val,
            distanceThreshold*distanceThreshold,
-           cos(angleThreshold),
-           //TODO: replace by KernelArg::Local(lsz)
-           ocl::KernelArg(ocl::KernelArg::LOCAL, 0, 1, 1, 0, lsz),
+           std::cos(angleThreshold),
+           ocl::KernelArg::Local(lsz),
            ocl::KernelArg::WriteOnlyNoSize(groupedSumGpu)
            );
 

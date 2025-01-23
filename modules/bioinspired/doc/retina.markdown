@@ -120,7 +120,7 @@ We present here some illustrations of the retina outputs on some examples taken 
 Also take into account that the two retina outputs are rescaled in range [0:255] such that magno output can show a lot of "noise" when nothing moves while drawing it. However, its energy remains low if you retrieve it using *getMagnoRAW* getter instead.
 
 
-![Retina processing on RGB image sequence : example from http://changedetection.net/ (baseline/PETS2006). Parvo enforces static signals but smooths moving persons since they do not remain static from its point of view. Magno channel highligths moving persons, observe the energy mapping on the one on top, partly behind a dark glass.](images/VideoDemo_RGB_PETS2006.jpg)
+![Retina processing on RGB image sequence : example from http://changedetection.net/ (baseline/PETS2006). Parvo enforces static signals but smooths moving persons since they do not remain static from its point of view. Magno channel highlights moving persons, observe the energy mapping on the one on top, partly behind a dark glass.](images/VideoDemo_RGB_PETS2006.jpg)
 
 ![Retina processing on gray levels image sequence : example from http://changedetection.net/ (thermal/park). On such grayscale images, parvo channel enforces contrasts while magno strongly reacts on moving pedestrians](images/VideoDemo_thermal_park.jpg)
 
@@ -134,7 +134,7 @@ For more information, refer to the following papers :
 
 -   Please have a look at the reference work of Jeanny Herault that you can read in his book : @cite Herault2010
 
-This retina filter code includes the research contributions of phd/research collegues from which
+This retina filter code includes the research contributions of phd/research colleagues from which
 code has been redrawn by the author :
 
 -   take a look at the *retinacolor.hpp* module to discover Brice Chaix de Lavarene phD color
@@ -207,7 +207,7 @@ functions (C++, Java, Python) :
 
       // Allocators
       cv::Ptr<Retina> Retina::create (Size inputSize);
-      cv::Ptr<Retina> Retina::create (Size inputSize, const bool colorMode, RETINA_COLORSAMPLINGMETHOD colorSamplingMethod=RETINA_COLOR_BAYER, const bool useRetinaLogSampling=false, const double reductionFactor=1.0, const double samplingStrenght=10.0);
+      cv::Ptr<Retina> Retina::create (Size inputSize, const bool colorMode, RETINA_COLORSAMPLINGMETHOD colorSamplingMethod=RETINA_COLOR_BAYER, const bool useRetinaLogSampling=false, const double reductionFactor=1.0, const double samplingStrength=10.0);
       }} // cv and bioinspired namespaces end
 @endcode
 

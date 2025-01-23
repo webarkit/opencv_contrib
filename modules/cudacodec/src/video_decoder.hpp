@@ -44,24 +44,23 @@
 #ifndef __VIDEO_DECODER_HPP__
 #define __VIDEO_DECODER_HPP__
 
-#if CUDA_VERSION >= 9000 && CUDA_VERSION < 10000
-    #include <dynlink_nvcuvid.h>
-#else
-    #include <nvcuvid.h>
-#endif
-
-#include "opencv2/core/private.cuda.hpp"
-#include "opencv2/cudacodec.hpp"
-
-namespace cv { namespace cudacodec { namespace detail
-{
+namespace cv { namespace cudacodec { namespace detail {
 
 class VideoDecoder
 {
 public:
-    VideoDecoder(const FormatInfo& videoFormat, CUvideoctxlock lock) : lock_(lock), decoder_(0)
+    VideoDecoder(const Codec& codec, const int minNumDecodeSurfaces, cv::Size targetSz, cv::Rect srcRoi, cv::Rect targetRoi, const bool enableHistogram, CUcontext ctx, CUvideoctxlock lock) :
+        ctx_(ctx), lock_(lock), decoder_(0)
     {
-        create(videoFormat);
+        videoFormat_.codec = codec;
+        videoFormat_.ulNumDecodeSurfaces = minNumDecodeSurfaces;
+        videoFormat_.enableHistogram = enableHistogram;
+        // alignment enforced by nvcuvid, likely due to chroma subsampling
+        videoFormat_.targetSz.width = targetSz.width - targetSz.width % 2; videoFormat_.targetSz.height = targetSz.height - targetSz.height % 2;
+        videoFormat_.srcRoi.x = srcRoi.x - srcRoi.x % 4; videoFormat_.srcRoi.width = srcRoi.width - srcRoi.width % 4;
+        videoFormat_.srcRoi.y = srcRoi.y - srcRoi.y % 2; videoFormat_.srcRoi.height = srcRoi.height - srcRoi.height % 2;
+        videoFormat_.targetRoi.x = targetRoi.x - targetRoi.x % 4; videoFormat_.targetRoi.width = targetRoi.width - targetRoi.width % 4;
+        videoFormat_.targetRoi.y = targetRoi.y - targetRoi.y % 2; videoFormat_.targetRoi.height = targetRoi.height - targetRoi.height % 2;
     }
 
     ~VideoDecoder()
@@ -70,19 +69,27 @@ public:
     }
 
     void create(const FormatInfo& videoFormat);
+    int reconfigure(const FormatInfo& videoFormat);
     void release();
+    bool inited() { AutoLock autoLock(mtx_); return decoder_; }
 
-    // Get the code-type currently used.
-    cudaVideoCodec codec() const { return createInfo_.CodecType; }
-    unsigned long maxDecodeSurfaces() const { return createInfo_.ulNumDecodeSurfaces; }
+    // Get the codec-type currently used.
+    cudaVideoCodec codec() const { return static_cast<cudaVideoCodec>(videoFormat_.codec); }
+    int nDecodeSurfaces() const { return videoFormat_.ulNumDecodeSurfaces; }
+    cv::Size getTargetSz() const { return videoFormat_.targetSz; }
+    cv::Rect getSrcRoi() const { return videoFormat_.srcRoi; }
+    cv::Rect getTargetRoi() const { return videoFormat_.targetRoi; }
 
-    unsigned long frameWidth() const { return createInfo_.ulWidth; }
-    unsigned long frameHeight() const { return createInfo_.ulHeight; }
+    unsigned long frameWidth() const { return videoFormat_.ulWidth; }
+    unsigned long frameHeight() const { return videoFormat_.ulHeight; }
+    FormatInfo format() { AutoLock autoLock(mtx_); return videoFormat_;}
 
-    unsigned long targetWidth() const { return createInfo_.ulTargetWidth; }
-    unsigned long targetHeight() const { return createInfo_.ulTargetHeight; }
+    unsigned long targetWidth() { return videoFormat_.width; }
+    unsigned long targetHeight() { return videoFormat_.height; }
 
-    cudaVideoChromaFormat chromaFormat() const { return createInfo_.ChromaFormat; }
+    cudaVideoChromaFormat chromaFormat() const { return static_cast<cudaVideoChromaFormat>(videoFormat_.chromaFormat); }
+    int nBitDepthMinus8() const { return videoFormat_.nBitDepthMinus8; }
+    bool enableHistogram() const { return videoFormat_.enableHistogram; }
 
     bool decodePicture(CUVIDPICPARAMS* picParams)
     {
@@ -106,9 +113,11 @@ public:
     }
 
 private:
+    CUcontext ctx_ = 0;
     CUvideoctxlock lock_;
-    CUVIDDECODECREATEINFO createInfo_;
-    CUvideodecoder        decoder_;
+    CUvideodecoder decoder_ = 0;
+    FormatInfo videoFormat_ = {};
+    Mutex mtx_;
 };
 
 }}}

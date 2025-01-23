@@ -280,7 +280,7 @@ public:
     the matches vector does not contain matches for fully masked-out query descriptors.
      */
     CV_WRAP virtual void knnMatchConvert(InputArray gpu_matches,
-                                 std::vector< std::vector<DMatch> >& matches,
+                                 CV_OUT std::vector< std::vector<DMatch> >& matches,
                                  bool compactResult = false) = 0;
 
     //
@@ -364,7 +364,7 @@ public:
     the matches vector does not contain matches for fully masked-out query descriptors.
      */
     CV_WRAP virtual void radiusMatchConvert(InputArray gpu_matches,
-                                    std::vector< std::vector<DMatch> >& matches,
+                                    CV_OUT std::vector< std::vector<DMatch> >& matches,
                                     bool compactResult = false) = 0;
 };
 
@@ -414,7 +414,7 @@ public:
 
     /** Converts keypoints array from internal representation to standard vector. */
     CV_WRAP virtual void convert(InputArray gpu_keypoints,
-                         std::vector<KeyPoint>& keypoints) = 0;
+                         CV_OUT std::vector<KeyPoint>& keypoints) = 0;
 };
 
 //
@@ -470,6 +470,33 @@ public:
                            int patchSize=31,
                            int fastThreshold=20,
                            bool blurForDescriptor=false);
+
+    CV_WRAP virtual void setMaxFeatures(int maxFeatures) = 0;
+    CV_WRAP virtual int getMaxFeatures() const = 0;
+
+    CV_WRAP virtual void setScaleFactor(double scaleFactor) = 0;
+    CV_WRAP virtual double getScaleFactor() const = 0;
+
+    CV_WRAP virtual void setNLevels(int nlevels) = 0;
+    CV_WRAP virtual int getNLevels() const = 0;
+
+    CV_WRAP virtual void setEdgeThreshold(int edgeThreshold) = 0;
+    CV_WRAP virtual int getEdgeThreshold() const = 0;
+
+    CV_WRAP virtual void setFirstLevel(int firstLevel) = 0;
+    CV_WRAP virtual int getFirstLevel() const = 0;
+
+    CV_WRAP virtual void setWTA_K(int wta_k) = 0;
+    CV_WRAP virtual int getWTA_K() const = 0;
+
+    CV_WRAP virtual void setScoreType(int scoreType) = 0;
+    CV_WRAP virtual int getScoreType() const = 0;
+
+    CV_WRAP virtual void setPatchSize(int patchSize) = 0;
+    CV_WRAP virtual int getPatchSize() const = 0;
+
+    CV_WRAP virtual void setFastThreshold(int fastThreshold) = 0;
+    CV_WRAP virtual int getFastThreshold() const = 0;
 
     //! if true, image will be blurred before descriptors calculation
     CV_WRAP virtual void setBlurForDescriptor(bool blurForDescriptor) = 0;

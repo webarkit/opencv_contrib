@@ -91,10 +91,10 @@ DSST::DSST(const Mat &image,
 
     scale_sigma = static_cast<float>(sqrt(scales_count) * sigma_factor);
 
-    min_scale_factor = pow(scale_step,
-            cvCeil(log(max(5.0 / template_size.width, 5.0 / template_size.height)) / log(scale_step)));
-    max_scale_factor = powf(scale_step,
-            static_cast<float>(cvFloor(log(min((float)image.rows / (float)bounding_box.width,
+    min_scale_factor = static_cast<float>(pow(scale_step,
+            cvCeil(log(max(5.0 / template_size.width, 5.0 / template_size.height)) / log(scale_step))));
+    max_scale_factor = static_cast<float>(pow(scale_step,
+            cvFloor(log(min((float)image.rows / (float)bounding_box.width,
             (float)image.cols / (float)bounding_box.height)) / log(scale_step))));
     ys = Mat(1, scales_count, CV_32FC1);
     float ss, sf;
@@ -127,7 +127,7 @@ DSST::DSST(const Mat &image,
     mulSpectrums(ysf, Fscale_resp, sf_num, 0 , true);
     Mat sf_den_all;
     mulSpectrums(Fscale_resp, Fscale_resp, sf_den_all, 0, true);
-    reduce(sf_den_all, sf_den, 0, CV_REDUCE_SUM, -1);
+    reduce(sf_den_all, sf_den, 0, REDUCE_SUM, -1);
 }
 
 DSST::~DSST()
@@ -178,7 +178,7 @@ void DSST::update(const Mat &image, const Point2f object_center)
     mulSpectrums(ysf, Fscale_features, new_sf_num, DFT_ROWS, true);
     Mat sf_den_all;
     mulSpectrums(Fscale_features, Fscale_features, new_sf_den_all, DFT_ROWS, true);
-    reduce(new_sf_den_all, new_sf_den, 0, CV_REDUCE_SUM, -1);
+    reduce(new_sf_den_all, new_sf_den, 0, REDUCE_SUM, -1);
 
     sf_num = (1 - learn_rate) * sf_num + learn_rate * new_sf_num;
     sf_den = (1 - learn_rate) * sf_den + learn_rate * new_sf_den;
@@ -194,7 +194,7 @@ float DSST::getScale(const Mat &image, const Point2f object_center)
 
     mulSpectrums(Fscale_features, sf_num, Fscale_features, 0, false);
     Mat scale_resp;
-    reduce(Fscale_features, scale_resp, 0, CV_REDUCE_SUM, -1);
+    reduce(Fscale_features, scale_resp, 0, REDUCE_SUM, -1);
     scale_resp = divide_complex_matrices(scale_resp, sf_den + 0.01f);
     idft(scale_resp, scale_resp, DFT_REAL_OUTPUT|DFT_SCALE);
     Point max_loc;

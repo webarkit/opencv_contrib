@@ -52,38 +52,41 @@ using namespace cv::cuda::device;
 
 namespace hist
 {
-    __global__ void histogram256Kernel(const uchar* src, int cols, int rows, size_t step, int* hist)
+    template<bool fourByteAligned>
+    __global__ void histogram256Kernel(const uchar* src, int cols, int rows, size_t step, int* hist, const int offsetX = 0)
     {
         __shared__ int shist[256];
 
         const int y = blockIdx.x * blockDim.y + threadIdx.y;
         const int tid = threadIdx.y * blockDim.x + threadIdx.x;
-
+        const int alignedOffset = fourByteAligned ? 0 : 4 - offsetX;
         shist[tid] = 0;
         __syncthreads();
 
-        if (y < rows)
-        {
-            const unsigned int* rowPtr = (const unsigned int*) (src + y * step);
+        if (y < rows) {
+            const uchar* rowPtr = &src[y * step];
+            // load uncoalesced head
+            if (!fourByteAligned && threadIdx.x == 0) {
+                for (int x = 0; x < min(alignedOffset, cols); x++)
+                    Emulation::smem::atomicAdd(&shist[static_cast<int>(rowPtr[x])], 1);
+            }
 
-            const int cols_4 = cols / 4;
-            for (int x = threadIdx.x; x < cols_4; x += blockDim.x)
-            {
-                unsigned int data = rowPtr[x];
-
-                Emulation::smem::atomicAdd(&shist[(data >>  0) & 0xFFU], 1);
-                Emulation::smem::atomicAdd(&shist[(data >>  8) & 0xFFU], 1);
+            // coalesced loads
+            const unsigned int* rowPtrIntAligned = (const unsigned int*)(fourByteAligned ? &src[y * step] : &src[alignedOffset + y * step]);
+            const int cols_4 = fourByteAligned ? cols / 4 : (cols - alignedOffset) / 4;
+            for (int x = threadIdx.x; x < cols_4; x += blockDim.x) {
+                const unsigned int data = rowPtrIntAligned[x];
+                Emulation::smem::atomicAdd(&shist[(data >> 0) & 0xFFU], 1);
+                Emulation::smem::atomicAdd(&shist[(data >> 8) & 0xFFU], 1);
                 Emulation::smem::atomicAdd(&shist[(data >> 16) & 0xFFU], 1);
                 Emulation::smem::atomicAdd(&shist[(data >> 24) & 0xFFU], 1);
             }
 
-            if (cols % 4 != 0 && threadIdx.x == 0)
-            {
-                for (int x = cols_4 * 4; x < cols; ++x)
-                {
-                    unsigned int data = ((const uchar*)rowPtr)[x];
-                    Emulation::smem::atomicAdd(&shist[data], 1);
-                }
+            // load uncoalesced tail
+            if (threadIdx.x == 0) {
+                const int iTailStart = fourByteAligned ? cols_4 * 4 : cols_4 * 4 + alignedOffset;
+                for (int x = iTailStart; x < cols; x++)
+                    Emulation::smem::atomicAdd(&shist[static_cast<int>(rowPtr[x])], 1);
             }
         }
 
@@ -94,61 +97,70 @@ namespace hist
             ::atomicAdd(hist + tid, histVal);
     }
 
-    void histogram256(PtrStepSzb src, int* hist, cudaStream_t stream)
+    void histogram256(PtrStepSzb src, int* hist, const int offsetX, cudaStream_t stream)
     {
         const dim3 block(32, 8);
         const dim3 grid(divUp(src.rows, block.y));
-
-        histogram256Kernel<<<grid, block, 0, stream>>>(src.data, src.cols, src.rows, src.step, hist);
+        if(offsetX)
+            histogram256Kernel<false><<<grid, block, 0, stream>>>(src.data, src.cols, src.rows, src.step, hist, offsetX);
+        else
+            histogram256Kernel<true><<<grid, block, 0, stream>>>(src.data, src.cols, src.rows, src.step, hist, offsetX);
         cudaSafeCall( cudaGetLastError() );
 
         if (stream == 0)
             cudaSafeCall( cudaDeviceSynchronize() );
     }
 
-    __global__ void histogram256Kernel(const uchar* src, int cols, int rows, size_t srcStep, const uchar* mask, size_t maskStep, int* hist)
+    template<bool fourByteAligned>
+    __global__ void histogram256Kernel(const uchar* src, int cols, int rows, size_t srcStep, const uchar* mask, size_t maskStep, int* hist, const int offsetX = 0)
     {
         __shared__ int shist[256];
 
         const int y = blockIdx.x * blockDim.y + threadIdx.y;
         const int tid = threadIdx.y * blockDim.x + threadIdx.x;
-
+        const int alignedOffset = fourByteAligned ? 0 : 4 - offsetX;
         shist[tid] = 0;
         __syncthreads();
 
         if (y < rows)
         {
-            const unsigned int* rowPtr = (const unsigned int*) (src + y * srcStep);
-            const unsigned int* maskRowPtr = (const unsigned int*) (mask + y * maskStep);
+            const uchar* rowPtr = &src[y * srcStep];
+            const uchar* maskRowPtr = &mask[y * maskStep];
+            // load uncoalesced head
+            if (!fourByteAligned && threadIdx.x == 0) {
+                for (int x = 0; x < min(alignedOffset, cols); x++) {
+                    if (maskRowPtr[x])
+                        Emulation::smem::atomicAdd(&shist[rowPtr[x]], 1);
+                }
+            }
 
-            const int cols_4 = cols / 4;
-            for (int x = threadIdx.x; x < cols_4; x += blockDim.x)
-            {
-                unsigned int data = rowPtr[x];
-                unsigned int m = maskRowPtr[x];
+            // coalesced loads
+            const unsigned int* rowPtrIntAligned = (const unsigned int*)(fourByteAligned ? &src[y * srcStep] : &src[alignedOffset + y * maskStep]);
+            const unsigned int* maskRowPtrIntAligned = (const unsigned int*)(fourByteAligned ? &mask[y * maskStep] : &mask[alignedOffset + y * maskStep]);
+            const int cols_4 = fourByteAligned ? cols / 4 : (cols - alignedOffset) / 4;
+            for (int x = threadIdx.x; x < cols_4; x += blockDim.x) {
+                const unsigned int data = rowPtrIntAligned[x];
+                const unsigned int m = maskRowPtrIntAligned[x];
 
-                if ((m >>  0) & 0xFFU)
-                    Emulation::smem::atomicAdd(&shist[(data >>  0) & 0xFFU], 1);
+                if ((m >> 0) & 0xFFU)
+                    Emulation::smem::atomicAdd(&shist[(data >> 0) & 0xFFU], 1);
 
-                if ((m >>  8) & 0xFFU)
-                    Emulation::smem::atomicAdd(&shist[(data >>  8) & 0xFFU], 1);
+                if ((m >> 8) & 0xFFU)
+                    Emulation::smem::atomicAdd(&shist[(data >> 8) & 0xFFU], 1);
 
-                if ((m >>  16) & 0xFFU)
+                if ((m >> 16) & 0xFFU)
                     Emulation::smem::atomicAdd(&shist[(data >> 16) & 0xFFU], 1);
 
-                if ((m >>  24) & 0xFFU)
+                if ((m >> 24) & 0xFFU)
                     Emulation::smem::atomicAdd(&shist[(data >> 24) & 0xFFU], 1);
             }
 
-            if (cols % 4 != 0 && threadIdx.x == 0)
-            {
-                for (int x = cols_4 * 4; x < cols; ++x)
-                {
-                    unsigned int data = ((const uchar*)rowPtr)[x];
-                    unsigned int m = ((const uchar*)maskRowPtr)[x];
-
-                    if (m)
-                        Emulation::smem::atomicAdd(&shist[data], 1);
+            // load uncoalesced tail
+            if (threadIdx.x == 0) {
+                const int iTailStart = fourByteAligned ? cols_4 * 4 : cols_4 * 4 + alignedOffset;
+                for (int x = iTailStart; x < cols; x++) {
+                    if (maskRowPtr[x])
+                        Emulation::smem::atomicAdd(&shist[static_cast<int>(rowPtr[x])], 1);
                 }
             }
         }
@@ -160,12 +172,15 @@ namespace hist
             ::atomicAdd(hist + tid, histVal);
     }
 
-    void histogram256(PtrStepSzb src, PtrStepSzb mask, int* hist, cudaStream_t stream)
+    void histogram256(PtrStepSzb src, PtrStepSzb mask, int* hist, const int offsetX, cudaStream_t stream)
     {
         const dim3 block(32, 8);
         const dim3 grid(divUp(src.rows, block.y));
 
-        histogram256Kernel<<<grid, block, 0, stream>>>(src.data, src.cols, src.rows, src.step, mask.data, mask.step, hist);
+        if(offsetX)
+            histogram256Kernel<false><<<grid, block, 0, stream>>>(src.data, src.cols, src.rows, src.step, mask.data, mask.step, hist, offsetX);
+        else
+            histogram256Kernel<true><<<grid, block, 0, stream>>>(src.data, src.cols, src.rows, src.step, mask.data, mask.step, hist, offsetX);
         cudaSafeCall( cudaGetLastError() );
 
         if (stream == 0)
@@ -186,42 +201,44 @@ namespace hist
         }
     }
 
-    __global__ void histEven8u(const uchar* src, const size_t step, const int rows, const int cols,
-                               int* hist, const int binCount, const int binSize, const int lowerLevel, const int upperLevel)
+    template<bool fourByteAligned>
+    __global__ void histEven8u(const uchar* src, const size_t step, const int rows, const int cols, int* hist, const int binCount, const int binSize,
+        const int lowerLevel, const int upperLevel, const int offsetX)
     {
         extern __shared__ int shist[];
 
         const int y = blockIdx.x * blockDim.y + threadIdx.y;
         const int tid = threadIdx.y * blockDim.x + threadIdx.x;
-
+        const int alignedOffset = fourByteAligned ? 0 : 4 - offsetX;
         if (tid < binCount)
             shist[tid] = 0;
-
         __syncthreads();
 
         if (y < rows)
         {
-            const uchar* rowPtr = src + y * step;
-            const uint* rowPtr4 = (uint*) rowPtr;
+            const uchar* rowPtr = &src[y * step];
+            // load uncoalesced head
+            if (!fourByteAligned && threadIdx.x == 0) {
+                for (int x = 0; x < min(alignedOffset, cols); x++)
+                    histEvenInc(shist, rowPtr[x], binSize, lowerLevel, upperLevel);
+            }
 
-            const int cols_4 = cols / 4;
-            for (int x = threadIdx.x; x < cols_4; x += blockDim.x)
-            {
-                const uint data = rowPtr4[x];
-
-                histEvenInc(shist, (data >>  0) & 0xFFU, binSize, lowerLevel, upperLevel);
-                histEvenInc(shist, (data >>  8) & 0xFFU, binSize, lowerLevel, upperLevel);
+            // coalesced loads
+            const unsigned int* rowPtrIntAligned = (const unsigned int*)(fourByteAligned ? &src[y * step] : &src[alignedOffset + y * step]);
+            const int cols_4 = fourByteAligned ? cols / 4 : (cols - alignedOffset) / 4;
+            for (int x = threadIdx.x; x < cols_4; x += blockDim.x) {
+                const unsigned int data = rowPtrIntAligned[x];
+                histEvenInc(shist, (data >> 0) & 0xFFU, binSize, lowerLevel, upperLevel);
+                histEvenInc(shist, (data >> 8) & 0xFFU, binSize, lowerLevel, upperLevel);
                 histEvenInc(shist, (data >> 16) & 0xFFU, binSize, lowerLevel, upperLevel);
                 histEvenInc(shist, (data >> 24) & 0xFFU, binSize, lowerLevel, upperLevel);
             }
 
-            if (cols % 4 != 0 && threadIdx.x == 0)
-            {
-                for (int x = cols_4 * 4; x < cols; ++x)
-                {
-                    const uchar data = rowPtr[x];
-                    histEvenInc(shist, data, binSize, lowerLevel, upperLevel);
-                }
+            // load uncoalesced tail
+            if (threadIdx.x == 0) {
+                const int iTailStart = fourByteAligned ? cols_4 * 4 : cols_4 * 4 + alignedOffset;
+                for (int x = iTailStart; x < cols; x++)
+                    histEvenInc(shist, rowPtr[x], binSize, lowerLevel, upperLevel);
             }
         }
 
@@ -236,7 +253,7 @@ namespace hist
         }
     }
 
-    void histEven8u(PtrStepSzb src, int* hist, int binCount, int lowerLevel, int upperLevel, cudaStream_t stream)
+    void histEven8u(PtrStepSzb src, int* hist, int binCount, int lowerLevel, int upperLevel, const int offsetX, cudaStream_t stream)
     {
         const dim3 block(32, 8);
         const dim3 grid(divUp(src.rows, block.y));
@@ -245,7 +262,10 @@ namespace hist
 
         const size_t smem_size = binCount * sizeof(int);
 
-        histEven8u<<<grid, block, smem_size, stream>>>(src.data, src.step, src.rows, src.cols, hist, binCount, binSize, lowerLevel, upperLevel);
+        if(offsetX)
+            histEven8u<false><<<grid, block, smem_size, stream>>>(src.data, src.step, src.rows, src.cols, hist, binCount, binSize, lowerLevel, upperLevel, offsetX);
+        else
+            histEven8u<true><<<grid, block, smem_size, stream>>>(src.data, src.step, src.rows, src.cols, hist, binCount, binSize, lowerLevel, upperLevel, offsetX);
         cudaSafeCall( cudaGetLastError() );
 
         if (stream == 0)
@@ -257,18 +277,15 @@ namespace hist
 
 namespace hist
 {
-    __constant__ int c_lut[256];
-
     struct EqualizeHist : unary_function<uchar, uchar>
     {
-        float scale;
+        const uchar* lut;
 
-        __host__ EqualizeHist(float _scale) : scale(_scale) {}
+        __host__ EqualizeHist(const uchar* _lut) : lut(_lut) {}
 
         __device__ __forceinline__ uchar operator ()(uchar val) const
         {
-            const int lut = c_lut[val];
-            return __float2int_rn(scale * lut);
+            return lut[val];
         }
     };
 }
@@ -283,16 +300,137 @@ namespace cv { namespace cuda { namespace device
 
 namespace hist
 {
-    void equalizeHist(PtrStepSzb src, PtrStepSzb dst, const int* lut, cudaStream_t stream)
+    void equalizeHist(PtrStepSzb src, PtrStepSzb dst, const uchar* lut, cudaStream_t stream)
     {
+        device::transform(src, dst, EqualizeHist(lut), WithOutMask(), stream);
+    }
+
+    __global__ void buildLutKernel(int* hist, unsigned char* lut, int size)
+    {
+        __shared__ int warp_smem[8];
+        __shared__ int hist_smem[8][33];
+
+#define HIST_SMEM_NO_BANK_CONFLICT(idx) hist_smem[(idx) >> 5][(idx) & 31]
+
+        const int tId = threadIdx.x;
+        const int warpId = threadIdx.x / 32;
+        const int laneId = threadIdx.x % 32;
+
+        // Step1 - Find minimum non-zero value in hist and make it zero
+        HIST_SMEM_NO_BANK_CONFLICT(tId) = hist[tId];
+        int nonZeroIdx = HIST_SMEM_NO_BANK_CONFLICT(tId) > 0 ? tId : 256;
+
+        __syncthreads();
+
+        for (int delta = 16; delta > 0; delta /= 2)
+        {
+#if __CUDACC_VER_MAJOR__ >= 9
+            int shflVal = __shfl_down_sync(0xFFFFFFFF, nonZeroIdx, delta);
+#else
+            int shflVal = __shfl_down(nonZeroIdx, delta);
+#endif
+            if (laneId < delta)
+                nonZeroIdx = min(nonZeroIdx, shflVal);
+        }
+
+        if (laneId == 0)
+            warp_smem[warpId] = nonZeroIdx;
+
+        __syncthreads();
+
+        if (tId < 8)
+        {
+            int warpVal = warp_smem[tId];
+            for (int delta = 4; delta > 0; delta /= 2)
+            {
+#if __CUDACC_VER_MAJOR__ >= 9
+                int shflVal = __shfl_down_sync(0x000000FF, warpVal, delta);
+#else
+                int shflVal = __shfl_down(warpVal, delta);
+#endif
+                if (tId < delta)
+                    warpVal = min(warpVal, shflVal);
+            }
+            if (tId == 0)
+            {
+                warp_smem[0] = warpVal; // warpVal - minimum index
+            }
+        }
+
+        __syncthreads();
+
+        const int minNonZeroIdx = warp_smem[0];
+        const int minNonZeroVal = HIST_SMEM_NO_BANK_CONFLICT(minNonZeroIdx);
+        if (minNonZeroVal == size)
+        {
+            // This is a special case: the whole image has the same color
+
+            lut[tId] = 0;
+            if (tId == minNonZeroIdx)
+                lut[tId] = minNonZeroIdx;
+            return;
+        }
+
+        if (tId == 0)
+            HIST_SMEM_NO_BANK_CONFLICT(minNonZeroIdx) = 0;
+
+        __syncthreads();
+
+        // Step2 - Inclusive sum
+        // Algorithm from GPU Gems 3 (A Work-Efficient Parallel Scan)
+        // https://developer.nvidia.com/gpugems/gpugems3/part-vi-gpu-computing/chapter-39-parallel-prefix-sum-scan-cuda
+
+        // Step2 Phase1 - The Up-Sweep Phase
+        for (int delta = 1; delta < 256; delta *= 2)
+        {
+            if (tId < 128 / delta)
+            {
+                int idx = 255 - 2 * tId * delta;
+                HIST_SMEM_NO_BANK_CONFLICT(idx) += HIST_SMEM_NO_BANK_CONFLICT(idx - delta);
+            }
+            __syncthreads();
+        }
+
+        // Step2 Phase2 - The Down-Sweep Phase
+        if (tId == 0)
+            HIST_SMEM_NO_BANK_CONFLICT(255) = 0;
+
+        for (int delta = 128; delta >= 1; delta /= 2)
+        {
+            if (tId < 128 / delta)
+            {
+                int rootIdx = 255 - tId * delta * 2;
+                int leftIdx = rootIdx - delta;
+                int tmp = HIST_SMEM_NO_BANK_CONFLICT(leftIdx);
+                HIST_SMEM_NO_BANK_CONFLICT(leftIdx) = HIST_SMEM_NO_BANK_CONFLICT(rootIdx);
+                HIST_SMEM_NO_BANK_CONFLICT(rootIdx) += tmp;
+            }
+            __syncthreads();
+        }
+
+        // Step2 Phase3 - Convert exclusive sum to inclusive sum
+        int tmp = HIST_SMEM_NO_BANK_CONFLICT(tId);
+        __syncthreads();
+        if (tId >= 1)
+            HIST_SMEM_NO_BANK_CONFLICT(tId - 1) = tmp;
+        if (tId == 255)
+            HIST_SMEM_NO_BANK_CONFLICT(tId) = tmp + hist[tId];
+        __syncthreads();
+
+        // Step3 - Scale values to build lut
+
+        lut[tId] = saturate_cast<unsigned char>(HIST_SMEM_NO_BANK_CONFLICT(tId) * (255.0f / (size - minNonZeroVal)));
+
+#undef HIST_SMEM_NO_BANK_CONFLICT
+    }
+
+    void buildLut(PtrStepSzi hist, PtrStepSzb lut, int size, cudaStream_t stream)
+    {
+        buildLutKernel<<<1, 256, 0, stream>>>(hist.data, lut.data, size);
+        cudaSafeCall( cudaGetLastError() );
+
         if (stream == 0)
-            cudaSafeCall( cudaMemcpyToSymbol(c_lut, lut, 256 * sizeof(int), 0, cudaMemcpyDeviceToDevice) );
-        else
-            cudaSafeCall( cudaMemcpyToSymbolAsync(c_lut, lut, 256 * sizeof(int), 0, cudaMemcpyDeviceToDevice, stream) );
-
-        const float scale = 255.0f / (src.cols * src.rows);
-
-        device::transform(src, dst, EqualizeHist(scale), WithOutMask(), stream);
+            cudaSafeCall( cudaDeviceSynchronize() );
     }
 }
 

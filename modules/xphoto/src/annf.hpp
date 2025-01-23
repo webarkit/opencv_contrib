@@ -166,11 +166,13 @@ KDTree(const cv::Mat &img, const int _leafNumber, const int _zeroThresh)
         int dimIdx = getMaxSpreadN(_left, _right);
         KDTreeComparator comp( this, dimIdx );
 
+        std::vector<int> _idx(idx.begin(), idx.end());
         std::nth_element(/**/
-            idx.begin() +  _left,
-            idx.begin() +    nth,
-            idx.begin() + _right, comp
+            _idx.begin() +  _left,
+            _idx.begin() +    nth,
+            _idx.begin() + _right, comp
                          /**/);
+        idx = _idx;
 
           left.push(_left); right.push(nth + 1);
         left.push(nth + 1);  right.push(_right);
@@ -261,7 +263,7 @@ static void dominantTransforms(const cv::Mat &img, std::vector <cv::Point2i> &tr
     cv::GaussianBlur( annfHist, annfHist,
         cv::Size(0, 0), std::sqrt(2.0), 0.0, cv::BORDER_CONSTANT);
     cv::dilate( annfHist, _annfHist,
-        cv::Matx<uchar, 9, 9>::ones() );
+        cv::Matx<uint8_t, 9, 9>::ones() );
 
     std::vector < std::pair<double, int> > amount;
     std::vector <cv::Point2i> shiftM;
@@ -280,11 +282,12 @@ static void dominantTransforms(const cv::Mat &img, std::vector <cv::Point2i> &tr
             }
     }
 
-    std::partial_sort( amount.begin(), amount.begin() + nTransform,
+    int num = std::min((int)amount.size(), (int)nTransform);
+    std::partial_sort( amount.begin(), amount.begin() + num,
         amount.end(), std::greater< std::pair<double, int> >() );
 
-    transforms.resize(nTransform);
-    for (int i = 0; i < nTransform; ++i)
+    transforms.resize(num);
+    for (int i = 0; i < num; ++i)
     {
         int idx = amount[i].second;
         transforms[i] = cv::Point2i( shiftM[idx].x, shiftM[idx].y );

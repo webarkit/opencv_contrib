@@ -67,6 +67,21 @@ public:
 
     virtual ~FREAK_Impl();
 
+    void read( const FileNode& fn) CV_OVERRIDE;
+    void write( FileStorage& fs) const CV_OVERRIDE;
+
+    void setOrientationNormalized(bool _orientationNormalized) CV_OVERRIDE {orientationNormalized = _orientationNormalized;}
+    bool getOrientationNormalized() const CV_OVERRIDE { return orientationNormalized; }
+
+    void setScaleNormalized(bool _scaleNormalized) CV_OVERRIDE {scaleNormalized = _scaleNormalized;}
+    bool getScaleNormalized() const CV_OVERRIDE { return scaleNormalized; }
+
+    void setPatternScale(double _patternScale) CV_OVERRIDE {patternScale = _patternScale;}
+    double getPatternScale() const CV_OVERRIDE { return patternScale; }
+
+    void setNOctaves(int _nOctaves) CV_OVERRIDE {nOctaves = _nOctaves;}
+    int getNOctaves() const CV_OVERRIDE { return nOctaves; }
+
     /** returns the descriptor length in bytes */
     virtual int descriptorSize() const CV_OVERRIDE;
 
@@ -283,8 +298,8 @@ void FREAK_Impl::buildPattern()
         const float dx = patternLookup[orientationPairs[m].i].x-patternLookup[orientationPairs[m].j].x;
         const float dy = patternLookup[orientationPairs[m].i].y-patternLookup[orientationPairs[m].j].y;
         const float norm_sq = (dx*dx+dy*dy);
-        orientationPairs[m].weight_dx = int((dx/(norm_sq))*4096.0+0.5);
-        orientationPairs[m].weight_dy = int((dy/(norm_sq))*4096.0+0.5);
+        orientationPairs[m].weight_dx = cvRound((dx/(norm_sq))*4096.0);
+        orientationPairs[m].weight_dy = cvRound((dy/(norm_sq))*4096.0);
     }
 
     // build the list of description pairs
@@ -482,7 +497,7 @@ void FREAK_Impl::computeDescriptors( InputArray _image, std::vector<KeyPoint>& k
     }
     else
     {
-        const int scIdx = std::max( (int)(1.0986122886681*sizeCst+0.5) ,0);
+        const int scIdx = std::max( cvRound(1.0986122886681*sizeCst) ,0);
         for( size_t k = keypoints.size(); k--; )
         {
             kpScaleIdx[k] = scIdx; // equivalent to the formule when the scale is normalized with a constant size of keypoints[k].size=3*SMALLEST_KP_SIZE
@@ -539,10 +554,7 @@ void FREAK_Impl::computeDescriptors( InputArray _image, std::vector<KeyPoint>& k
 
                 keypoints[k].angle = static_cast<float>(atan2((float)direction1,(float)direction0)*(180.0/CV_PI));//estimate orientation
 
-                if(keypoints[k].angle < 0.f)
-                    thetaIdx = int(FREAK_NB_ORIENTATION*keypoints[k].angle*(1/360.0)-0.5);
-                else
-                    thetaIdx = int(FREAK_NB_ORIENTATION*keypoints[k].angle*(1/360.0)+0.5);
+                thetaIdx = cvRound(FREAK_NB_ORIENTATION*keypoints[k].angle*(1/360.0));
 
                 if( thetaIdx < 0 )
                     thetaIdx += FREAK_NB_ORIENTATION;
@@ -596,10 +608,7 @@ void FREAK_Impl::computeDescriptors( InputArray _image, std::vector<KeyPoint>& k
 
                 keypoints[k].angle = static_cast<float>(atan2((float)direction1,(float)direction0)*(180.0/CV_PI)); //estimate orientation
 
-                if(keypoints[k].angle < 0.f)
-                    thetaIdx = int(FREAK_NB_ORIENTATION*keypoints[k].angle*(1/360.0)-0.5);
-                else
-                    thetaIdx = int(FREAK_NB_ORIENTATION*keypoints[k].angle*(1/360.0)+0.5);
+                thetaIdx = cvRound(FREAK_NB_ORIENTATION*keypoints[k].angle*(1/360.0));
 
                 if( thetaIdx < 0 )
                     thetaIdx += FREAK_NB_ORIENTATION;
@@ -671,10 +680,10 @@ imgType FREAK_Impl::meanIntensity( InputArray _image, InputArray _integral,
     // expected case:
 
     // calculate borders
-    const int x_left = int(xf-radius+0.5);
-    const int y_top = int(yf-radius+0.5);
-    const int x_right = int(xf+radius+1.5);//integral image is 1px wider
-    const int y_bottom = int(yf+radius+1.5);//integral image is 1px higher
+    const int x_left = cvRound(xf-radius);
+    const int y_top = cvRound(yf-radius);
+    const int x_right = cvRound(xf+radius+1);//integral image is 1px wider
+    const int y_bottom = cvRound(yf+radius+1);//integral image is 1px higher
     iiType ret_val;
 
     ret_val = integral.at<iiType>(y_bottom,x_right);//bottom right corner
@@ -821,6 +830,30 @@ FREAK_Impl::~FREAK_Impl()
 {
 }
 
+void FREAK_Impl::read( const FileNode& fn)
+{
+  // if node is empty, keep previous value
+  if (!fn["orientationNormalized"].empty())
+    fn["orientationNormalized"] >> orientationNormalized;
+  if (!fn["scaleNormalized"].empty())
+    fn["scaleNormalized"] >> scaleNormalized;
+  if (!fn["patternScale"].empty())
+    fn["patternScale"] >> patternScale;
+  if (!fn["nOctaves"].empty())
+    fn["nOctaves"] >> nOctaves;
+}
+void FREAK_Impl::write( FileStorage& fs) const
+{
+  if(fs.isOpened())
+  {
+    fs << "name" << getDefaultName();
+    fs << "orientationNormalized" << orientationNormalized;
+    fs << "scaleNormalized" << scaleNormalized;
+    fs << "patternScale" << patternScale;
+    fs << "nOctaves" << nOctaves;
+  }
+}
+
 int FREAK_Impl::descriptorSize() const
 {
     return FREAK::NB_PAIRS / 8; // descriptor length in bytes
@@ -844,6 +877,11 @@ Ptr<FREAK> FREAK::create(bool orientationNormalized,
 {
     return makePtr<FREAK_Impl>(orientationNormalized, scaleNormalized,
                                patternScale, nOctaves, selectedPairs);
+}
+
+String FREAK::getDefaultName() const
+{
+    return (Feature2D::getDefaultName() + ".FREAK");
 }
 
 }

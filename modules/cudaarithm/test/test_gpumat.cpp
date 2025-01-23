@@ -320,10 +320,112 @@ CUDA_TEST_P(GpuMat_ConvertTo, WithScaling)
     }
 }
 
+CUDA_TEST_P(GpuMat_ConvertTo, InplaceWithOutScaling)
+{
+    cv::Mat src = randomMat(size, depth1);
+
+    if ((depth1 == CV_64F || depth2 == CV_64F) && !supportFeature(devInfo, cv::cuda::NATIVE_DOUBLE))
+    {
+        try
+        {
+            cv::cuda::GpuMat d_srcDst = loadMat(src);
+            d_srcDst.convertTo(d_srcDst, depth2);
+        }
+        catch (const cv::Exception& e)
+        {
+            ASSERT_EQ(cv::Error::StsUnsupportedFormat, e.code);
+        }
+    }
+    else
+    {
+        cv::cuda::GpuMat d_srcDst = loadMat(src, useRoi);
+        d_srcDst.convertTo(d_srcDst, depth2);
+
+        cv::Mat dst_gold;
+        src.convertTo(dst_gold, depth2);
+
+        EXPECT_MAT_NEAR(dst_gold, d_srcDst, depth2 < CV_32F ? 1.0 : 1e-4);
+    }
+}
+
+
+CUDA_TEST_P(GpuMat_ConvertTo, InplaceWithScaling)
+{
+    cv::Mat src = randomMat(size, depth1);
+    double a = randomDouble(0.0, 1.0);
+    double b = randomDouble(-10.0, 10.0);
+
+    if ((depth1 == CV_64F || depth2 == CV_64F) && !supportFeature(devInfo, cv::cuda::NATIVE_DOUBLE))
+    {
+        try
+        {
+            cv::cuda::GpuMat d_srcDst = loadMat(src);
+            d_srcDst.convertTo(d_srcDst, depth2, a, b);
+        }
+        catch (const cv::Exception& e)
+        {
+            ASSERT_EQ(cv::Error::StsUnsupportedFormat, e.code);
+        }
+    }
+    else
+    {
+        cv::cuda::GpuMat d_srcDst = loadMat(src, useRoi);
+        d_srcDst.convertTo(d_srcDst, depth2, a, b);
+
+        cv::Mat dst_gold;
+        src.convertTo(dst_gold, depth2, a, b);
+
+        EXPECT_MAT_NEAR(dst_gold, d_srcDst, depth2 < CV_32F ? 1.0 : 1e-4);
+    }
+}
+
 INSTANTIATE_TEST_CASE_P(CUDA, GpuMat_ConvertTo, testing::Combine(
     ALL_DEVICES,
     DIFFERENT_SIZES,
     ALL_DEPTH,
+    ALL_DEPTH,
+    WHOLE_SUBMAT));
+
+////////////////////////////////////////////////////////////////////////////////
+// locateROI
+
+PARAM_TEST_CASE(GpuMat_LocateROI, cv::cuda::DeviceInfo, cv::Size, MatDepth, UseRoi)
+{
+    cv::cuda::DeviceInfo devInfo;
+    cv::Size size;
+    int depth;
+    bool useRoi;
+
+    virtual void SetUp()
+    {
+        devInfo = GET_PARAM(0);
+        size = GET_PARAM(1);
+        depth = GET_PARAM(2);
+        useRoi = GET_PARAM(3);
+
+        cv::cuda::setDevice(devInfo.deviceID());
+    }
+};
+
+CUDA_TEST_P(GpuMat_LocateROI, locateROI)
+{
+    Point ofsGold;
+    Size wholeSizeGold;
+    GpuMat src = createMat(size, depth, wholeSizeGold, ofsGold, useRoi);
+
+    Point ofs;
+    Size wholeSize;
+    src.locateROI(wholeSize, ofs);
+    ASSERT_TRUE(ofs == ofsGold && wholeSize == wholeSizeGold);
+
+    GpuMat srcPtr(src.size(), src.type(), src.data, src.step);
+    src.locateROI(wholeSize, ofs);
+    ASSERT_TRUE(ofs == ofsGold && wholeSize == wholeSizeGold);
+}
+
+INSTANTIATE_TEST_CASE_P(CUDA, GpuMat_LocateROI, testing::Combine(
+    ALL_DEVICES,
+    DIFFERENT_SIZES,
     ALL_DEPTH,
     WHOLE_SUBMAT));
 

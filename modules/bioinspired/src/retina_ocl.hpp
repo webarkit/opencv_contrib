@@ -397,7 +397,7 @@ protected:
 class RetinaFilter
 {
 public:
-    RetinaFilter(const unsigned int sizeRows, const unsigned int sizeColumns, const bool colorMode = false, const int samplingMethod = RETINA_COLOR_BAYER, const bool useRetinaLogSampling = false, const double reductionFactor = 1.0, const double samplingStrenght = 10.0);
+    RetinaFilter(const unsigned int sizeRows, const unsigned int sizeColumns, const bool colorMode = false, const int samplingMethod = RETINA_COLOR_BAYER, const bool useRetinaLogSampling = false, const double reductionFactor = 1.0, const double samplingStrength = 10.0);
     ~RetinaFilter();
 
     void clearAllBuffers();
@@ -631,7 +631,7 @@ class RetinaOCLImpl CV_FINAL : public Retina
 {
 public:
     RetinaOCLImpl(Size getInputSize);
-    RetinaOCLImpl(Size getInputSize, const bool colorMode, int colorSamplingMethod = RETINA_COLOR_BAYER, const bool useRetinaLogSampling = false, const double reductionFactor = 1.0, const double samplingStrenght = 10.0);
+    RetinaOCLImpl(Size getInputSize, const bool colorMode, int colorSamplingMethod = RETINA_COLOR_BAYER, const bool useRetinaLogSampling = false, const double reductionFactor = 1.0, const double samplingStrength = 10.0);
     virtual ~RetinaOCLImpl() CV_OVERRIDE;
 
     Size getInputSize() CV_OVERRIDE;
@@ -643,7 +643,7 @@ public:
 
     RetinaParameters getParameters() CV_OVERRIDE;
 
-    const String printSetup() CV_OVERRIDE;
+    String printSetup() CV_OVERRIDE;
     virtual void write(String fs) const CV_OVERRIDE;
     virtual void write(FileStorage& fs) const CV_OVERRIDE;
 
@@ -663,8 +663,8 @@ public:
     void applyFastToneMapping(InputArray /*inputImage*/, OutputArray /*outputToneMappedImage*/) CV_OVERRIDE;
     void getParvoRAW(OutputArray /*retinaOutput_parvo*/) CV_OVERRIDE;
     void getMagnoRAW(OutputArray /*retinaOutput_magno*/) CV_OVERRIDE;
-    const Mat getMagnoRAW() const CV_OVERRIDE;
-    const Mat getParvoRAW() const CV_OVERRIDE;
+    Mat getMagnoRAW() const CV_OVERRIDE;
+    Mat getParvoRAW() const CV_OVERRIDE;
 
 protected:
     RetinaParameters _retinaParameters;
@@ -672,7 +672,7 @@ protected:
     cv::Ptr<RetinaFilter> _retinaFilter;
     bool convertToColorPlanes(const UMat& input, UMat &output);
     void convertToInterleaved(const UMat& input, bool colorMode, UMat &output);
-    void _init(const Size getInputSize, const bool colorMode, int colorSamplingMethod = RETINA_COLOR_BAYER, const bool useRetinaLogSampling = false, const double reductionFactor = 1.0, const double samplingStrenght = 10.0);
+    void _init(const Size getInputSize, const bool colorMode, int colorSamplingMethod = RETINA_COLOR_BAYER, const bool useRetinaLogSampling = false, const double reductionFactor = 1.0, const double samplingStrength = 10.0);
 };
 
 }  /* namespace ocl */

@@ -6,6 +6,7 @@
 #include "rlof/geo_interpolation.hpp"
 #include "opencv2/ximgproc.hpp"
 
+
 namespace cv {
 namespace optflow {
 
@@ -14,6 +15,19 @@ Ptr<RLOFOpticalFlowParameter> RLOFOpticalFlowParameter::create()
     return Ptr<RLOFOpticalFlowParameter>(new RLOFOpticalFlowParameter);
 }
 
+void RLOFOpticalFlowParameter::setUseMEstimator(bool val)
+{
+    if (val)
+    {
+        normSigma0 = 3.2f;
+        normSigma1 = 7.f;
+    }
+    else
+    {
+        normSigma0 = std::numeric_limits<float>::max();
+        normSigma1 = std::numeric_limits<float>::max();
+    }
+}
 void RLOFOpticalFlowParameter::setSolverType(SolverType val){ solverType = val;}
 SolverType RLOFOpticalFlowParameter::getSolverType() const { return solverType;}
 
@@ -70,6 +84,9 @@ public:
         , fgs_lambda(500.0f)
         , fgs_sigma(1.5f)
         , use_post_proc(true)
+        , use_variational_refinement(false)
+        , sp_size(15)
+        , slic_type(ximgproc::SLIC)
 
     {
         prevPyramid[0] = cv::Ptr<CImageBuffer>(new CImageBuffer);
@@ -107,6 +124,15 @@ public:
     virtual bool getUsePostProc() const CV_OVERRIDE { return use_post_proc; }
     virtual void setUsePostProc(bool val) CV_OVERRIDE { use_post_proc = val; }
 
+    virtual void setUseVariationalRefinement(bool val) CV_OVERRIDE { use_variational_refinement = val; }
+    virtual bool getUseVariationalRefinement() const CV_OVERRIDE { return use_variational_refinement; }
+
+    virtual void setRICSPSize(int val) CV_OVERRIDE { sp_size = val; }
+    virtual int  getRICSPSize() const CV_OVERRIDE { return sp_size; }
+
+    virtual void setRICSLICType(int val) CV_OVERRIDE { slic_type = static_cast<ximgproc::SLICType>(val); }
+    virtual int  getRICSLICType() const CV_OVERRIDE { return slic_type; }
+
     virtual void calc(InputArray I0, InputArray I1, InputOutputArray flow) CV_OVERRIDE
     {
         CV_Assert(!I0.empty() && I0.depth() == CV_8U && (I0.channels() == 3 || I0.channels() == 1));
@@ -116,7 +142,7 @@ public:
             param = Ptr<RLOFOpticalFlowParameter>(new RLOFOpticalFlowParameter());
         if (param->supportRegionType == SR_CROSS)
             CV_Assert( I0.channels() == 3 && I1.channels() == 3);
-        CV_Assert(interp_type == InterpolationType::INTERP_EPIC || interp_type == InterpolationType::INTERP_GEO);
+        CV_Assert(interp_type == InterpolationType::INTERP_EPIC || interp_type == InterpolationType::INTERP_GEO || interp_type == InterpolationType::INTERP_RIC);
         // if no parameter is used use the default parameter
 
         Mat prevImage = I0.getMat();
@@ -177,14 +203,32 @@ public:
             filtered_prevPoints = prevPoints;
             filtered_currPoints = currPoints;
         }
-
+        // Interpolators below expect non empty matches
+        if (filtered_prevPoints.empty()) {
+            flow.setTo(0);
+            return;
+        }
         if (interp_type == InterpolationType::INTERP_EPIC)
         {
             Ptr<ximgproc::EdgeAwareInterpolator> gd = ximgproc::createEdgeAwareInterpolator();
             gd->setK(k);
             gd->setSigma(sigma);
             gd->setLambda(lambda);
-            gd->setUsePostProcessing(false);
+            gd->setFGSLambda(fgs_lambda);
+            gd->setFGSSigma(fgs_sigma);
+            gd->setUsePostProcessing(use_post_proc);
+            gd->interpolate(prevImage, filtered_prevPoints, currImage, filtered_currPoints, dense_flow);
+        }
+        else if (interp_type == InterpolationType::INTERP_RIC)
+        {
+            Ptr<ximgproc::RICInterpolator> gd = ximgproc::createRICInterpolator();
+            gd->setK(k);
+            gd->setFGSLambda(fgs_lambda);
+            gd->setFGSSigma(fgs_sigma);
+            gd->setSuperpixelSize(sp_size);
+            gd->setSuperpixelMode(slic_type);
+            gd->setUseGlobalSmootherFilter(use_post_proc);
+            gd->setUseVariationalRefinement(false);
             gd->interpolate(prevImage, filtered_prevPoints, currImage, filtered_currPoints, dense_flow);
         }
         else
@@ -199,10 +243,19 @@ public:
             cv::bilateralFilter(vecMats[0], vecMats2[0], 5, 2, 20);
             cv::bilateralFilter(vecMats[1], vecMats2[1], 5, 2, 20);
             cv::merge(vecMats2, dense_flow);
+            if (use_post_proc)
+            {
+                ximgproc::fastGlobalSmootherFilter(prevImage, flow, flow, fgs_lambda, fgs_sigma);
+            }
         }
-        if (use_post_proc)
+        if (use_variational_refinement)
         {
-            ximgproc::fastGlobalSmootherFilter(prevImage, flow, flow, fgs_lambda, fgs_sigma);
+            Mat prevGrey, currGrey;
+            Ptr<VariationalRefinement > variationalrefine = VariationalRefinement::create();
+            cvtColor(prevImage, prevGrey, COLOR_BGR2GRAY);
+            cvtColor(currImage, currGrey, COLOR_BGR2GRAY);
+            variationalrefine->setOmega(1.9f);
+            variationalrefine->calc(prevGrey, currGrey, flow);
         }
     }
 
@@ -227,6 +280,9 @@ protected:
     float                         fgs_lambda;
     float                         fgs_sigma;
     bool                          use_post_proc;
+    bool                          use_variational_refinement;
+    int                           sp_size;
+    ximgproc::SLICType            slic_type;
 };
 
 Ptr<DenseRLOFOpticalFlow> DenseRLOFOpticalFlow::create(
@@ -237,9 +293,12 @@ Ptr<DenseRLOFOpticalFlow> DenseRLOFOpticalFlow::create(
     int epicK,
     float epicSigma,
     float epicLambda,
+    int ricSPSize,
+    int ricSLICType,
     bool use_post_proc,
     float fgs_lambda,
-    float fgs_sigma)
+    float fgs_sigma,
+    bool use_variational_refinement)
 {
     Ptr<DenseRLOFOpticalFlow> algo = makePtr<DenseOpticalFlowRLOFImpl>();
     algo->setRLOFOpticalFlowParameter(rlofParam);
@@ -252,6 +311,9 @@ Ptr<DenseRLOFOpticalFlow> DenseRLOFOpticalFlow::create(
     algo->setUsePostProc(use_post_proc);
     algo->setFgsLambda(fgs_lambda);
     algo->setFgsSigma(fgs_sigma);
+    algo->setRICSLICType(ricSLICType);
+    algo->setRICSPSize(ricSPSize);
+    algo->setUseVariationalRefinement(use_variational_refinement);
     return algo;
 }
 
@@ -282,21 +344,27 @@ class SparseRLOFOpticalFlowImpl : public SparseRLOFOpticalFlow
         CV_Assert(!nextImg.empty() && nextImg.depth() == CV_8U && (nextImg.channels() == 3 || nextImg.channels() == 1));
         CV_Assert(prevImg.sameSize(nextImg));
 
+        if (param.empty())
+        {
+            param = makePtr<RLOFOpticalFlowParameter>();
+        }
+        CV_DbgAssert(!param.empty());
+
+        if (param->supportRegionType == SR_CROSS)
+        {
+            CV_CheckChannelsEQ(prevImg.channels(), 3, "SR_CROSS mode requires images with 3 channels");
+            CV_CheckChannelsEQ(nextImg.channels(), 3, "SR_CROSS mode requires images with 3 channels");
+        }
+
         Mat prevImage = prevImg.getMat();
         Mat nextImage = nextImg.getMat();
         Mat prevPtsMat = prevPts.getMat();
-
-        if (param.empty())
-        {
-            param = Ptr<RLOFOpticalFlowParameter>(new RLOFOpticalFlowParameter);
-        }
 
         if (param->useInitialFlow == false)
             nextPts.create(prevPtsMat.size(), prevPtsMat.type(), -1, true);
 
         int npoints = 0;
         CV_Assert((npoints = prevPtsMat.checkVector(2, CV_32F, true)) >= 0);
-
         if (npoints == 0)
         {
             nextPts.release();
@@ -304,14 +372,22 @@ class SparseRLOFOpticalFlowImpl : public SparseRLOFOpticalFlow
             err.release();
             return;
         }
-
         Mat nextPtsMat = nextPts.getMat();
         CV_Assert(nextPtsMat.checkVector(2, CV_32F, true) == npoints);
-        std::vector<cv::Point2f> prevPoints(npoints), nextPoints(npoints), refPoints;
-        prevPtsMat.copyTo(cv::Mat(1, npoints, CV_32FC2, &prevPoints[0]));
-        if (param->useInitialFlow )
-            nextPtsMat.copyTo(cv::Mat(1, nextPtsMat.cols, CV_32FC2, &nextPoints[0]));
 
+        std::vector<cv::Point2f> prevPoints(npoints), nextPoints(npoints), refPoints;
+
+        if (prevPtsMat.channels() != 2)
+            prevPtsMat = prevPtsMat.reshape(2, npoints);
+
+        prevPtsMat.copyTo(prevPoints);
+
+        if (param->useInitialFlow )
+        {
+            if (nextPtsMat.channels() != 2)
+                nextPtsMat = nextPtsMat.reshape(2, npoints);
+            nextPtsMat.copyTo(nextPoints);
+        }
         cv::Mat statusMat;
         cv::Mat errorMat;
         if (status.needed() || forwardBackwardThreshold > 0)
@@ -332,14 +408,19 @@ class SparseRLOFOpticalFlowImpl : public SparseRLOFOpticalFlow
         cv::Mat(1,npoints , CV_32FC2, &nextPoints[0]).copyTo(nextPtsMat);
         if (forwardBackwardThreshold > 0)
         {
+            // use temp variable to properly initialize refPoints
+            // inside 'calcLocalOpticalFlow' when 'use_init_flow' and 'fwd_bwd_thresh' parameters are used
+            bool temp_param = param->getUseInitialFlow();
+            param->setUseInitialFlow(false);
             // reuse image pyramids
             calcLocalOpticalFlow(nextImage, prevImage, currPyramid, prevPyramid, nextPoints, refPoints, *(param.get()));
+            param->setUseInitialFlow(temp_param);
         }
         for (unsigned int r = 0; r < refPoints.size(); r++)
         {
             Point2f diff = refPoints[r] - prevPoints[r];
             errorMat.at<float>(r) = sqrt(diff.x * diff.x + diff.y * diff.y);
-            if (errorMat.at<float>(r) <= forwardBackwardThreshold)
+            if (errorMat.at<float>(r) > forwardBackwardThreshold)
                 statusMat.at<uchar>(r) = 0;
         }
 
@@ -367,11 +448,13 @@ void calcOpticalFlowDenseRLOF(InputArray I0, InputArray I1, InputOutputArray flo
     float forewardBackwardThreshold, Size gridStep,
     InterpolationType interp_type,
     int epicK, float epicSigma, float epicLambda,
-    bool use_post_proc, float fgsLambda, float fgsSigma)
+    int superpixelSize, int superpixelType,
+    bool use_post_proc, float fgsLambda, float fgsSigma, bool use_variational_refinement)
 {
     Ptr<DenseRLOFOpticalFlow> algo = DenseRLOFOpticalFlow::create(
         rlofParam, forewardBackwardThreshold, gridStep, interp_type,
-        epicK, epicSigma, epicLambda, use_post_proc, fgsLambda, fgsSigma);
+        epicK, epicSigma, epicLambda, superpixelSize, superpixelType,
+        use_post_proc, fgsLambda, fgsSigma, use_variational_refinement);
     algo->calc(I0, I1, flow);
     algo->collectGarbage();
 }

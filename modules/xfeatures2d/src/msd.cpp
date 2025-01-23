@@ -55,78 +55,14 @@ University of Bologna, Open Perception
  */
 
 #include "precomp.hpp"
+#include "msd_pyramid.hpp"
 #include <limits>
 
 namespace cv
 {
     namespace xfeatures2d
     {
-        /*!
-            MSD Image Pyramid.
-         */
-        class MSDImagePyramid
-        {
-            // Multi-threaded construction of the scale-space pyramid
-            struct MSDImagePyramidBuilder : ParallelLoopBody
-            {
 
-                MSDImagePyramidBuilder(const cv::Mat& _im, std::vector<cv::Mat>* _m_imPyr, float _scaleFactor)
-                {
-                    im = &_im;
-                    m_imPyr = _m_imPyr;
-                    scaleFactor = _scaleFactor;
-
-                }
-
-                void operator()(const Range& range) const CV_OVERRIDE
-                {
-                    for (int lvl = range.start; lvl < range.end; lvl++)
-                    {
-                        float scale = 1 / std::pow(scaleFactor, (float) lvl);
-                        (*m_imPyr)[lvl] = cv::Mat(cv::Size(cvRound(im->cols * scale), cvRound(im->rows * scale)), im->type());
-                        cv::resize(*im, (*m_imPyr)[lvl], cv::Size((*m_imPyr)[lvl].cols, (*m_imPyr)[lvl].rows), 0.0, 0.0, cv::INTER_AREA);
-                    }
-                }
-                const cv::Mat* im;
-                std::vector<cv::Mat>* m_imPyr;
-                float scaleFactor;
-            };
-
-        public:
-
-            MSDImagePyramid(const cv::Mat &im, const int nLevels, const float scaleFactor = 1.6f);
-            ~MSDImagePyramid();
-
-            const std::vector<cv::Mat> getImPyr() const
-            {
-                return m_imPyr;
-            };
-
-        private:
-
-            std::vector<cv::Mat> m_imPyr;
-            int m_nLevels;
-            float m_scaleFactor;
-        };
-
-        MSDImagePyramid::MSDImagePyramid(const cv::Mat & im, const int nLevels, const float scaleFactor)
-        {
-            m_nLevels = nLevels;
-            m_scaleFactor = scaleFactor;
-            m_imPyr.clear();
-            m_imPyr.resize(nLevels);
-
-            m_imPyr[0] = im.clone();
-
-            if (m_nLevels > 1)
-            {
-                parallel_for_(Range(1, nLevels), MSDImagePyramidBuilder(im, &m_imPyr, scaleFactor));
-            }
-        }
-
-        MSDImagePyramid::~MSDImagePyramid()
-        {
-        }
 
         /*!
             MSD Implementation.
@@ -197,6 +133,72 @@ namespace cv
               m_n_scales(n_scales), m_compute_orientation(compute_orientation)
 
             {
+            }
+
+            void setPatchRadius(int patch_radius)  CV_OVERRIDE { m_patch_radius = patch_radius; }
+            int getPatchRadius() const CV_OVERRIDE { return m_patch_radius; }
+
+            void setSearchAreaRadius(int search_area_radius)  CV_OVERRIDE { m_search_area_radius = search_area_radius; }
+            int getSearchAreaRadius() const CV_OVERRIDE { return m_search_area_radius; }
+
+            void setNmsRadius(int nms_radius)  CV_OVERRIDE { m_nms_radius = nms_radius; }
+            int getNmsRadius() const CV_OVERRIDE { return m_nms_radius; }
+
+            void setNmsScaleRadius(int nms_scale_radius)  CV_OVERRIDE { m_nms_scale_radius = nms_scale_radius; }
+            int getNmsScaleRadius() const CV_OVERRIDE { return m_nms_scale_radius; }
+
+            void setThSaliency(float th_saliency)  CV_OVERRIDE { m_th_saliency = th_saliency; }
+            float getThSaliency() const CV_OVERRIDE { return m_th_saliency; }
+
+            void setKNN(int kNN)  CV_OVERRIDE { m_kNN = kNN; }
+            int getKNN() const CV_OVERRIDE { return m_kNN; }
+
+            void setScaleFactor(float scale_factor)  CV_OVERRIDE { m_scale_factor = scale_factor; }
+            float getScaleFactor() const CV_OVERRIDE { return m_scale_factor; }
+
+            void setNScales(int n_scales)  CV_OVERRIDE { m_n_scales = n_scales; }
+            int getNScales() const CV_OVERRIDE { return m_n_scales; }
+
+            void setComputeOrientation(bool compute_orientation)  CV_OVERRIDE { m_compute_orientation = compute_orientation; }
+            bool getComputeOrientation() const CV_OVERRIDE { return m_compute_orientation; }
+
+            void read( const FileNode& fn) CV_OVERRIDE
+            {
+              // if node is empty, keep previous value
+              if (!fn["patch_radius"].empty())
+                fn["patch_radius"] >> m_patch_radius;
+              if (!fn["search_area_radius"].empty())
+                fn["search_area_radius"] >> m_search_area_radius;
+              if (!fn["nms_radius"].empty())
+                fn["nms_radius"] >> m_nms_radius;
+              if (!fn["nms_scale_radius"].empty())
+                fn["nms_scale_radius"] >> m_nms_scale_radius;
+              if (!fn["th_saliency"].empty())
+                fn["th_saliency"] >> m_th_saliency;
+              if (!fn["kNN"].empty())
+                fn["kNN"] >> m_kNN;
+              if (!fn["scale_factor"].empty())
+                fn["scale_factor"] >> m_scale_factor;
+              if (!fn["n_scales"].empty())
+                fn["n_scales"] >> m_n_scales;
+              if (!fn["compute_orientation"].empty())
+                fn["compute_orientation"] >> m_compute_orientation;
+            }
+            void write( FileStorage& fs) const CV_OVERRIDE
+            {
+              if(fs.isOpened())
+              {
+                fs << "name" << getDefaultName();
+                fs << "patch_radius" << m_patch_radius;
+                fs << "search_area_radius" << m_search_area_radius;
+                fs << "nms_radius" << m_nms_radius;
+                fs << "nms_scale_radius" << m_nms_scale_radius;
+                fs << "th_saliency" << m_th_saliency;
+                fs << "kNN" << m_kNN;
+                fs << "scale_factor" << m_scale_factor;
+                fs << "n_scales" << m_n_scales;
+                fs << "compute_orientation" << m_compute_orientation;
+              }
             }
 
             void detect(InputArray _image, std::vector<KeyPoint>& keypoints, InputArray _mask) CV_OVERRIDE
@@ -367,7 +369,7 @@ namespace cv
                 p_res.y = j + xr + 0.5f;
             } else
             {
-                float effectiveScaleFactor = std::pow(m_scale_factor, scale);
+                float effectiveScaleFactor = std::pow(m_scale_factor, (float)scale);
                 p_res.x = (i + xc + 0.5f) * effectiveScaleFactor;
                 p_res.y = (j + xr + 0.5f) * effectiveScaleFactor;
 
@@ -755,7 +757,7 @@ namespace cv
                                     continue;
                             }
                             kp_temp.response = saliency[r][j * cW + i];
-                            kp_temp.size = (m_patch_radius * 2.0f + 1) * std::pow(m_scale_factor, r);
+                            kp_temp.size = (m_patch_radius * 2.0f + 1) * std::pow(m_scale_factor, (float)r);
                             kp_temp.octave = r;
                             if (m_compute_orientation)
                                 kp_temp.angle = computeOrientation(m_scaleSpace[r], i, j, orientPoints);
@@ -775,6 +777,11 @@ namespace cv
             return makePtr<MSDDetector_Impl>(m_patch_radius, m_search_area_radius,
                     m_nms_radius, m_nms_scale_radius, m_th_saliency, m_kNN, m_scale_factor,
                     m_n_scales, m_compute_orientation);
+        }
+
+        String MSDDetector::getDefaultName() const
+        {
+            return (Feature2D::getDefaultName() + ".MSD");
         }
 
     }

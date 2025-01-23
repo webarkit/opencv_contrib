@@ -68,8 +68,8 @@ void cv::cuda::histRange(InputArray, GpuMat*, const GpuMat*, Stream&) { throw_no
 
 namespace hist
 {
-    void histogram256(PtrStepSzb src, int* hist, cudaStream_t stream);
-    void histogram256(PtrStepSzb src, PtrStepSzb mask, int* hist, cudaStream_t stream);
+    void histogram256(PtrStepSzb src, int* hist, const int offsetX, cudaStream_t stream);
+    void histogram256(PtrStepSzb src, PtrStepSzb mask, int* hist, const int offsetX, cudaStream_t stream);
 }
 
 void cv::cuda::calcHist(InputArray _src, OutputArray _hist, Stream& stream)
@@ -91,10 +91,12 @@ void cv::cuda::calcHist(InputArray _src, InputArray _mask, OutputArray _hist, St
 
     hist.setTo(Scalar::all(0), stream);
 
+    Point ofs; Size wholeSize;
+    src.locateROI(wholeSize, ofs);
     if (mask.empty())
-        hist::histogram256(src, hist.ptr<int>(), StreamAccessor::getStream(stream));
+        hist::histogram256(src, hist.ptr<int>(), ofs.x, StreamAccessor::getStream(stream));
     else
-        hist::histogram256(src, mask, hist.ptr<int>(), StreamAccessor::getStream(stream));
+        hist::histogram256(src, mask, hist.ptr<int>(), ofs.x, StreamAccessor::getStream(stream));
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -102,7 +104,8 @@ void cv::cuda::calcHist(InputArray _src, InputArray _mask, OutputArray _hist, St
 
 namespace hist
 {
-    void equalizeHist(PtrStepSzb src, PtrStepSzb dst, const int* lut, cudaStream_t stream);
+    void equalizeHist(PtrStepSzb src, PtrStepSzb dst, const uchar* lut, cudaStream_t stream);
+    void buildLut(PtrStepSzi hist, PtrStepSzb lut, int size, cudaStream_t stream);
 }
 
 void cv::cuda::equalizeHist(InputArray _src, OutputArray _dst, Stream& _stream)
@@ -114,26 +117,21 @@ void cv::cuda::equalizeHist(InputArray _src, OutputArray _dst, Stream& _stream)
     _dst.create(src.size(), src.type());
     GpuMat dst = _dst.getGpuMat();
 
-    int intBufSize;
-    nppSafeCall( nppsIntegralGetBufferSize_32s(256, &intBufSize) );
-
-    size_t bufSize = intBufSize + 2 * 256 * sizeof(int);
+    size_t bufSize = 256 * sizeof(int) + 256 * sizeof(uchar);
 
     BufferPool pool(_stream);
     GpuMat buf = pool.getBuffer(1, static_cast<int>(bufSize), CV_8UC1);
 
     GpuMat hist(1, 256, CV_32SC1, buf.data);
-    GpuMat lut(1, 256, CV_32SC1, buf.data + 256 * sizeof(int));
-    GpuMat intBuf(1, intBufSize, CV_8UC1, buf.data + 2 * 256 * sizeof(int));
+    GpuMat lut(1, 256, CV_8UC1, buf.data + 256 * sizeof(int));
 
     cuda::calcHist(src, hist, _stream);
 
     cudaStream_t stream = StreamAccessor::getStream(_stream);
-    NppStreamHandler h(stream);
 
-    nppSafeCall( nppsIntegral_32s(hist.ptr<Npp32s>(), lut.ptr<Npp32s>(), 256, intBuf.ptr<Npp8u>()) );
+    hist::buildLut(hist, lut, src.rows * src.cols, stream);
 
-    hist::equalizeHist(src, dst, lut.ptr<int>(), stream);
+    hist::equalizeHist(src, dst, lut.data, stream);
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -283,8 +281,13 @@ cv::Ptr<cv::cuda::CLAHE> cv::cuda::createCLAHE(double clipLimit, cv::Size tileGr
 
 namespace
 {
+#if (CUDA_VERSION >= 12040)
+    typedef NppStatus (*get_buf_size_c1_t)(NppiSize oSizeROI, int nLevels, size_t* hpBufferSize);
+    typedef NppStatus (*get_buf_size_c4_t)(NppiSize oSizeROI, int nLevels[], size_t* hpBufferSize);
+#else
     typedef NppStatus (*get_buf_size_c1_t)(NppiSize oSizeROI, int nLevels, int* hpBufferSize);
     typedef NppStatus (*get_buf_size_c4_t)(NppiSize oSizeROI, int nLevels[], int* hpBufferSize);
+#endif
 
     template<int SDEPTH> struct NppHistogramEvenFuncC1
     {
@@ -317,7 +320,11 @@ namespace
             sz.width = src.cols;
             sz.height = src.rows;
 
+#if (CUDA_VERSION >= 12040)
+            size_t buf_size;
+#else
             int buf_size;
+#endif
             get_buf_size(sz, levels, &buf_size);
 
             BufferPool pool(stream);
@@ -351,7 +358,11 @@ namespace
 
             Npp32s* pHist[] = {hist[0].ptr<Npp32s>(), hist[1].ptr<Npp32s>(), hist[2].ptr<Npp32s>(), hist[3].ptr<Npp32s>()};
 
+#if (CUDA_VERSION >= 12040)
+            size_t buf_size;
+#else
             int buf_size;
+#endif
             get_buf_size(sz, levels, &buf_size);
 
             BufferPool pool(stream);
@@ -421,7 +432,11 @@ namespace
             sz.width = src.cols;
             sz.height = src.rows;
 
+#if (CUDA_VERSION >= 12040)
+            size_t buf_size;
+#else
             int buf_size;
+#endif
             get_buf_size(sz, levels.cols, &buf_size);
 
             BufferPool pool(stream);
@@ -462,7 +477,11 @@ namespace
             sz.width = src.cols;
             sz.height = src.rows;
 
+#if (CUDA_VERSION >= 12040)
+            size_t buf_size;
+#else
             int buf_size;
+#endif
             get_buf_size(sz, nLevels, &buf_size);
 
             BufferPool pool(stream);
@@ -498,16 +517,18 @@ void cv::cuda::evenLevels(OutputArray _levels, int nLevels, int lowerLevel, int 
 
 namespace hist
 {
-    void histEven8u(PtrStepSzb src, int* hist, int binCount, int lowerLevel, int upperLevel, cudaStream_t stream);
+    void histEven8u(PtrStepSzb src, int* hist, int binCount, int lowerLevel, int upperLevel, const int offsetX, cudaStream_t stream);
 }
 
 namespace
 {
     void histEven8u(const GpuMat& src, GpuMat& hist, int histSize, int lowerLevel, int upperLevel, cudaStream_t stream)
     {
+        Point ofs; Size wholeSize;
+        src.locateROI(wholeSize, ofs);
         hist.create(1, histSize, CV_32S);
         cudaSafeCall( cudaMemsetAsync(hist.data, 0, histSize * sizeof(int), stream) );
-        hist::histEven8u(src, hist.ptr<int>(), histSize, lowerLevel, upperLevel, stream);
+        hist::histEven8u(src, hist.ptr<int>(), histSize, lowerLevel, upperLevel, ofs.x, stream);
     }
 }
 

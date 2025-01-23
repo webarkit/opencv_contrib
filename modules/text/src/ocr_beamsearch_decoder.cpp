@@ -499,21 +499,11 @@ Ptr<OCRBeamSearchDecoder> OCRBeamSearchDecoder::create( Ptr<OCRBeamSearchDecoder
     return makePtr<OCRBeamSearchDecoderImpl>(_classifier, _vocabulary, transition_p, emission_p, _mode, _beam_size);
 }
 
-Ptr<OCRBeamSearchDecoder> OCRBeamSearchDecoder::create(Ptr<OCRBeamSearchDecoder::ClassifierCallback> _classifier,
-                                                        const String& _vocabulary,
-                                                        InputArray transition_p,
-                                                        InputArray emission_p,
-                                                        int _mode,
-                                                        int _beam_size)
-{
-    return makePtr<OCRBeamSearchDecoderImpl>(_classifier, _vocabulary, transition_p, emission_p, (decoder_mode)_mode, _beam_size);
-}
-
 Ptr<OCRBeamSearchDecoder> OCRBeamSearchDecoder::create(const String& _filename,
                                                         const String& _vocabulary,
                                                         InputArray transition_p,
                                                         InputArray emission_p,
-                                                        int _mode,
+                                                        decoder_mode _mode,
                                                         int _beam_size)
 {
     return makePtr<OCRBeamSearchDecoderImpl>(loadOCRBeamSearchClassifierCNN(_filename), _vocabulary, transition_p, emission_p, (decoder_mode)_mode, _beam_size);
@@ -621,7 +611,6 @@ void OCRBeamSearchClassifierCNN::eval( InputArray _src, vector< vector<double> >
 
         img = src(Rect(Point(x_c,0),Size(window_size,window_size)));
 
-        int patch_count = 0;
         vector< vector<double> > data_pool(9);
 
 
@@ -662,7 +651,6 @@ void OCRBeamSearchClassifierCNN::eval( InputArray _src, vector< vector<double> >
                             data_pool[7].insert(data_pool[7].end(),patch.begin(),patch.end());
                         if ((quad_id == 19)||(quad_id == 24)||(quad_id == 20)||(quad_id == 25))
                             data_pool[8].insert(data_pool[8].end(),patch.begin(),patch.end());
-                        patch_count++;
                     }
                 }
 

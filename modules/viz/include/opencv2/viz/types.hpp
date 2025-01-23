@@ -60,7 +60,7 @@ namespace cv
 
         /** @brief This class represents color in BGR order.
         */
-        class Color : public Scalar
+        class Color : public Scalar  // FIXIT design bug, missing CV_EXPORTS
         {
         public:
             Color();
@@ -75,49 +75,49 @@ namespace cv
             static Color black();
             static Color blue();
             static Color green();
-            static Color cyan();
-
             static Color red();
-            static Color magenta();
+            static Color cyan();
             static Color yellow();
+            static Color magenta();
             static Color white();
 
             static Color gray();
+            static Color silver();
 
             static Color mlab();
 
             static Color navy();
-            static Color olive();
             static Color maroon();
             static Color teal();
-            static Color rose();
+            static Color olive();
+            static Color purple();
             static Color azure();
+            static Color chartreuse();
+            static Color rose();
+
             static Color lime();
             static Color gold();
-            static Color brown();
             static Color orange();
-            static Color chartreuse();
             static Color orange_red();
-            static Color purple();
             static Color indigo();
 
-            static Color pink();
-            static Color cherry();
-            static Color bluberry();
-            static Color raspberry();
-            static Color silver();
-            static Color violet();
+            static Color brown();
             static Color apricot();
-            static Color turquoise();
-            static Color celestial_blue();
+            static Color pink();
+            static Color raspberry();
+            static Color cherry();
+            static Color violet();
             static Color amethyst();
+            static Color bluberry();
+            static Color celestial_blue();
+            static Color turquoise();
 
             static Color not_set();
         };
 
         /** @brief This class wraps mesh attributes, and it can load a mesh from a ply file. :
         */
-        class CV_EXPORTS Mesh
+        class CV_EXPORTS_W_SIMPLE Mesh
         {
         public:
             enum {
@@ -126,16 +126,21 @@ namespace cv
                 LOAD_OBJ = 2
             };
 
-            Mat cloud; //!< point coordinates of type CV_32FC3 or CV_64FC3 with only 1 row
-            Mat colors; //!< point color of type CV_8UC3 or CV_8UC4 with only 1 row
-            Mat normals; //!< point normals of type CV_32FC3, CV_32FC4, CV_64FC3 or CV_64FC4 with only 1 row
+            CV_PROP_RW Mat cloud; //!< point coordinates of type CV_32FC3 or CV_64FC3 with only 1 row
+            CV_PROP_RW Mat colors; //!< point color of type CV_8UC3 or CV_8UC4 with only 1 row
+            CV_PROP_RW Mat normals; //!< point normals of type CV_32FC3, CV_32FC4, CV_64FC3 or CV_64FC4 with only 1 row
 
             //! Raw integer list of the form: (n,id1,id2,...,idn, n,id1,id2,...,idn, ...)
             //! where n is the number of points in the polygon, and id is a zero-offset index into an associated cloud.
-            Mat polygons; //!< CV_32SC1 with only 1 row
+            CV_PROP_RW Mat polygons; //!< CV_32SC1 with only 1 row
 
-            Mat texture;
-            Mat tcoords; //!< CV_32FC2 or CV_64FC2 with only 1 row
+            CV_PROP_RW Mat texture;
+            CV_PROP_RW Mat tcoords; //!< CV_32FC2 or CV_64FC2 with only 1 row
+
+            CV_WRAP Mesh()
+            {
+                // nothing
+            }
 
             /** @brief Loads a mesh from a ply or a obj file.
 
@@ -171,7 +176,7 @@ namespace cv
             Camera(double fx, double fy, double cx, double cy, const Size &window_size);
 
             /** @overload
-            @param fov Field of view (horizontal, vertical)
+            @param fov Field of view (horizontal, vertical) in radians
             @param window_size Size of the window. Principal point is at the center of the window
             by default.
             */
@@ -343,42 +348,44 @@ inline cv::viz::Color::Color(const Scalar& color) : Scalar(color) {}
 inline cv::viz::Color::operator cv::Vec3b() const { return cv::Vec3d(val); }
 
 inline cv::viz::Color cv::viz::Color::black()   { return Color(  0,   0,   0); }
-inline cv::viz::Color cv::viz::Color::green()   { return Color(  0, 255,   0); }
 inline cv::viz::Color cv::viz::Color::blue()    { return Color(255,   0,   0); }
-inline cv::viz::Color cv::viz::Color::cyan()    { return Color(255, 255,   0); }
+inline cv::viz::Color cv::viz::Color::green()   { return Color(  0, 255,   0); }
 inline cv::viz::Color cv::viz::Color::red()     { return Color(  0,   0, 255); }
+inline cv::viz::Color cv::viz::Color::cyan()    { return Color(255, 255,   0); }
 inline cv::viz::Color cv::viz::Color::yellow()  { return Color(  0, 255, 255); }
 inline cv::viz::Color cv::viz::Color::magenta() { return Color(255,   0, 255); }
 inline cv::viz::Color cv::viz::Color::white()   { return Color(255, 255, 255); }
+
 inline cv::viz::Color cv::viz::Color::gray()    { return Color(128, 128, 128); }
+inline cv::viz::Color cv::viz::Color::silver()  { return Color(192, 192, 192); }
 
 inline cv::viz::Color cv::viz::Color::mlab()    { return Color(255, 128, 128); }
 
-inline cv::viz::Color cv::viz::Color::navy()       { return Color(0,     0, 128); }
-inline cv::viz::Color cv::viz::Color::olive()      { return Color(0,   128, 128); }
-inline cv::viz::Color cv::viz::Color::maroon()     { return Color(0,     0, 128); }
+inline cv::viz::Color cv::viz::Color::navy()       { return Color(128,   0,   0); }
+inline cv::viz::Color cv::viz::Color::maroon()     { return Color(  0,   0, 128); }
 inline cv::viz::Color cv::viz::Color::teal()       { return Color(128, 128,   0); }
-inline cv::viz::Color cv::viz::Color::rose()       { return Color(128,   0, 255); }
-inline cv::viz::Color cv::viz::Color::azure()      { return Color(255, 128,   0); }
-inline cv::viz::Color cv::viz::Color::lime()       { return Color(0,   255, 191); }
-inline cv::viz::Color cv::viz::Color::gold()       { return Color(0,   215, 255); }
-inline cv::viz::Color cv::viz::Color::brown()      { return Color(42,    42, 165); }
-inline cv::viz::Color cv::viz::Color::orange()     { return Color(0,   165, 255); }
-inline cv::viz::Color cv::viz::Color::chartreuse() { return Color(0,   255, 128); }
-inline cv::viz::Color cv::viz::Color::orange_red() { return Color(0,    69, 255); }
+inline cv::viz::Color cv::viz::Color::olive()      { return Color(  0, 128, 128); }
 inline cv::viz::Color cv::viz::Color::purple()     { return Color(128,   0, 128); }
+inline cv::viz::Color cv::viz::Color::azure()      { return Color(255, 128,   0); }
+inline cv::viz::Color cv::viz::Color::chartreuse() { return Color(  0, 255, 128); }
+inline cv::viz::Color cv::viz::Color::rose()       { return Color(128,   0, 255); }
+
+inline cv::viz::Color cv::viz::Color::lime()       { return Color(  0, 255, 191); }
+inline cv::viz::Color cv::viz::Color::gold()       { return Color(  0, 215, 255); }
+inline cv::viz::Color cv::viz::Color::orange()     { return Color(  0, 165, 255); }
+inline cv::viz::Color cv::viz::Color::orange_red() { return Color(  0,  69, 255); }
 inline cv::viz::Color cv::viz::Color::indigo()     { return Color(130,   0,  75); }
 
-inline cv::viz::Color cv::viz::Color::pink()           { return Color(203, 192, 255); }
-inline cv::viz::Color cv::viz::Color::cherry()         { return Color( 99,  29, 222); }
-inline cv::viz::Color cv::viz::Color::bluberry()       { return Color(247, 134,  79); }
-inline cv::viz::Color cv::viz::Color::raspberry()      { return Color( 92,  11, 227); }
-inline cv::viz::Color cv::viz::Color::silver()         { return Color(192, 192, 192); }
-inline cv::viz::Color cv::viz::Color::violet()         { return Color(226,  43, 138); }
+inline cv::viz::Color cv::viz::Color::brown()          { return Color( 42,  42, 165); }
 inline cv::viz::Color cv::viz::Color::apricot()        { return Color(177, 206, 251); }
-inline cv::viz::Color cv::viz::Color::turquoise()      { return Color(208, 224,  64); }
-inline cv::viz::Color cv::viz::Color::celestial_blue() { return Color(208, 151,  73); }
+inline cv::viz::Color cv::viz::Color::pink()           { return Color(203, 192, 255); }
+inline cv::viz::Color cv::viz::Color::raspberry()      { return Color( 92,  11, 227); }
+inline cv::viz::Color cv::viz::Color::cherry()         { return Color( 99,  29, 222); }
+inline cv::viz::Color cv::viz::Color::violet()         { return Color(226,  43, 138); }
 inline cv::viz::Color cv::viz::Color::amethyst()       { return Color(204, 102, 153); }
+inline cv::viz::Color cv::viz::Color::bluberry()       { return Color(247, 134,  79); }
+inline cv::viz::Color cv::viz::Color::celestial_blue() { return Color(208, 151,  73); }
+inline cv::viz::Color cv::viz::Color::turquoise()      { return Color(208, 224,  64); }
 
 inline cv::viz::Color cv::viz::Color::not_set()        { return Color(-1, -1, -1); }
 

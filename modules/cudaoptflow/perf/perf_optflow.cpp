@@ -326,4 +326,109 @@ PERF_TEST_P(ImagePair, OpticalFlowDual_TVL1,
     }
 }
 
+//////////////////////////////////////////////////////
+// NvidiaOpticalFlow_1_0
+
+PERF_TEST_P(ImagePair, NvidiaOpticalFlow_1_0,
+    Values<pair_string>(make_pair("gpu/opticalflow/frame0.png", "gpu/opticalflow/frame1.png")))
+{
+    declare.time(10);
+
+    const cv::Mat frame0 = readImage(GetParam().first, cv::IMREAD_GRAYSCALE);
+    ASSERT_FALSE(frame0.empty());
+
+    const cv::Mat frame1 = readImage(GetParam().second, cv::IMREAD_GRAYSCALE);
+    ASSERT_FALSE(frame1.empty());
+    Stream inputStream;
+    Stream outputStream;
+
+    if (PERF_RUN_CUDA())
+    {
+        const cv::cuda::GpuMat d_frame0(frame0);
+        const cv::cuda::GpuMat d_frame1(frame1);
+        cv::cuda::GpuMat d_flow;
+        cv::Ptr<cv::cuda::NvidiaOpticalFlow_1_0> d_nvof;
+        try
+        {
+            d_nvof = cv::cuda::NvidiaOpticalFlow_1_0::create(frame0.size(),
+                cv::cuda::NvidiaOpticalFlow_1_0::NVIDIA_OF_PERF_LEVEL::NV_OF_PERF_LEVEL_FAST,
+                false, false, false, 0, inputStream, outputStream);
+        }
+        catch (const cv::Exception& e)
+        {
+            if(e.code == Error::StsBadFunc || e.code == Error::StsBadArg || e.code == Error::StsNullPtr)
+                throw SkipTestException("Current configuration is not supported");
+            throw;
+        }
+
+        TEST_CYCLE() d_nvof->calc(d_frame0, d_frame1, d_flow);
+
+        cv::cuda::GpuMat flow[2];
+        cv::cuda::split(d_flow, flow);
+
+        cv::cuda::GpuMat u = flow[0];
+        cv::cuda::GpuMat v = flow[1];
+
+        CUDA_SANITY_CHECK(u, 1e-10);
+        CUDA_SANITY_CHECK(v, 1e-10);
+
+        d_nvof->collectGarbage();
+    }
+}
+
+//////////////////////////////////////////////////////
+// NvidiaOpticalFlow_2_0
+
+PERF_TEST_P(ImagePair, NvidiaOpticalFlow_2_0,
+    Values<pair_string>(make_pair("gpu/opticalflow/frame0.png", "gpu/opticalflow/frame1.png")))
+{
+    declare.time(10);
+
+    const cv::Mat frame0 = readImage(GetParam().first, cv::IMREAD_GRAYSCALE);
+    ASSERT_FALSE(frame0.empty());
+
+    const cv::Mat frame1 = readImage(GetParam().second, cv::IMREAD_GRAYSCALE);
+    ASSERT_FALSE(frame1.empty());
+
+    const cv::cuda::NvidiaOpticalFlow_2_0::NVIDIA_OF_OUTPUT_VECTOR_GRID_SIZE outGridSize
+        = cv::cuda::NvidiaOpticalFlow_2_0::NVIDIA_OF_OUTPUT_VECTOR_GRID_SIZE::NV_OF_OUTPUT_VECTOR_GRID_SIZE_1;
+    const cv::cuda::NvidiaOpticalFlow_2_0::NVIDIA_OF_HINT_VECTOR_GRID_SIZE hintGridSize
+        = cv::cuda::NvidiaOpticalFlow_2_0::NVIDIA_OF_HINT_VECTOR_GRID_SIZE::NV_OF_HINT_VECTOR_GRID_SIZE_1;
+    Stream inputStream;
+    Stream outputStream;
+
+    if (PERF_RUN_CUDA())
+    {
+        const cv::cuda::GpuMat d_frame0(frame0);
+        const cv::cuda::GpuMat d_frame1(frame1);
+        cv::cuda::GpuMat d_flow;
+        cv::Ptr<cv::cuda::NvidiaOpticalFlow_2_0> d_nvof;
+        try
+        {
+            d_nvof = cv::cuda::NvidiaOpticalFlow_2_0::create(frame0.size(),
+                cv::cuda::NvidiaOpticalFlow_2_0::NVIDIA_OF_PERF_LEVEL::NV_OF_PERF_LEVEL_FAST, outGridSize, hintGridSize,
+              false, false, false, 0, inputStream, outputStream);
+        }
+        catch (const cv::Exception& e)
+        {
+            if (e.code == Error::StsBadFunc || e.code == Error::StsBadArg || e.code == Error::StsNullPtr)
+                throw SkipTestException("Current configuration is not supported");
+            throw;
+        }
+
+        TEST_CYCLE() d_nvof->calc(d_frame0, d_frame1, d_flow);
+
+        cv::cuda::GpuMat flow[2];
+        cv::cuda::split(d_flow, flow);
+
+        cv::cuda::GpuMat u = flow[0];
+        cv::cuda::GpuMat v = flow[1];
+
+        CUDA_SANITY_CHECK(u, 1e-10);
+        CUDA_SANITY_CHECK(v, 1e-10);
+
+        d_nvof->collectGarbage();
+    }
+}
+
 }} // namespace

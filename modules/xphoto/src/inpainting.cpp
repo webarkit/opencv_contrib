@@ -9,10 +9,18 @@
 //
 //                           License Agreement
 //                For Open Source Computer Vision Library
+//                       (3-clause BSD License)
 //
-// Copyright (C) 2000-2008, Intel Corporation, all rights reserved.
+// Copyright (C) 2000-2019, Intel Corporation, all rights reserved.
 // Copyright (C) 2009-2011, Willow Garage Inc., all rights reserved.
+// Copyright (C) 2009-2016, NVIDIA Corporation, all rights reserved.
+// Copyright (C) 2010-2013, Advanced Micro Devices, Inc., all rights reserved.
+// Copyright (C) 2015-2016, OpenCV Foundation, all rights reserved.
+// Copyright (C) 2015-2016, Itseez Inc., all rights reserved.
 // Third party copyrights are property of their respective owners.
+//
+// Redistribution and use in source and binary forms, with or without modification,
+// are permitted provided that the following conditions are met:
 //
 //   * Redistribution's of source code must retain the above copyright notice,
 //     this list of conditions and the following disclaimer.
@@ -21,8 +29,9 @@
 //     this list of conditions and the following disclaimer in the documentation
 //     and/or other materials provided with the distribution.
 //
-//   * The name of Intel Corporation may not be used to endorse or promote products
-//     derived from this software without specific prior written permission.
+//   * Neither the names of the copyright holders nor the names of the contributors
+//    may be used to endorse or promote products derived from this software
+//    without specific prior written permission.
 //
 // This software is provided by the copyright holders and contributors "as is" and
 // any express or implied warranties, including, but not limited to, the implied
@@ -46,21 +55,18 @@
 #include <fstream>
 #include <time.h>
 #include <functional>
+#include <string>
+#include <tuple>
 
 #include "opencv2/xphoto.hpp"
-
 #include "opencv2/imgproc.hpp"
-#include "opencv2/imgproc/imgproc_c.h"
-
 #include "opencv2/core.hpp"
-#include "opencv2/core/core_c.h"
-
 #include "opencv2/core/types.hpp"
-#include "opencv2/core/types_c.h"
-
 #include "photomontage.hpp"
 #include "annf.hpp"
 #include "advanced_types.hpp"
+
+#include "inpainting_fsr.impl.hpp"
 
 namespace cv
 {
@@ -83,7 +89,7 @@ namespace xphoto
         cv::resize(_src,  src,  _src.size()/ls,  0, 0,    cv::INTER_AREA);
 
         src.convertTo( img, CV_32F );
-        img.setTo(0, 255 - mask);
+        img.setTo(0, ~(mask > 0));
 
         cv::erode( mask,  dmask, cv::Mat(), cv::Point(-1,-1), 2);
         cv::erode(dmask, ddmask, cv::Mat(), cv::Point(-1,-1), 2);
@@ -93,7 +99,7 @@ namespace xphoto
 
         for (int i = 0; i < ddmask.rows; ++i)
         {
-            uchar *dmask_data = (uchar *) ddmask.template ptr<uchar>(i);
+            uint8_t *dmask_data = (uint8_t *) ddmask.template ptr<uint8_t>(i);
             int *backref_data = (int *) backref.template ptr< int >(i);
 
             for (int j = 0; j < ddmask.cols; ++j)
@@ -117,7 +123,7 @@ namespace xphoto
 
         for (size_t i = 0; i < pPath.size(); ++i)
         {
-            uchar xmask = dmask.template at<uchar>(pPath[i]);
+            uint8_t xmask = dmask.template at<uint8_t>(pPath[i]);
 
             for (int j = 0; j < nTransform + 1; ++j)
             {
@@ -130,7 +136,7 @@ namespace xphoto
                 &&   u.x < src.cols && u.x >= 0 )
                 {
                     if ( xmask == 0 || j == nTransform )
-                        vmask = mask.template at<uchar>(u);
+                        vmask = mask.template at<uint8_t>(u);
                     vimg = img.template at<cv::Vec<float, cn> >(u);
                 }
 
@@ -215,14 +221,14 @@ namespace xphoto
                                                };
 
                             std::vector <cv::Vec <float, cn> > pointVec;
-                                            std::vector <uchar> maskVec;
+                                            std::vector <uint8_t> maskVec;
 
                             for (uint q = 0; q < sizeof(dv)/sizeof(cv::Point2i); ++q)
                                 if (u.x + dv[q].x >= 0 && u.x + dv[q].x < img.cols
                                 &&  u.y + dv[q].y >= 0 && u.y + dv[q].y < img.rows)
                                 {
                                     pointVec.push_back(img.template at<cv::Vec <float, cn> >(u + dv[q]));
-                                    maskVec.push_back(_mask.template at<uchar>(u + dv[q]));
+                                    maskVec.push_back(_mask.template at<uint8_t>(u + dv[q]));
                                 }
                                 else
                                 {
@@ -275,6 +281,9 @@ namespace xphoto
         /** Writing result **/
         for (size_t i = 0; i < labelSeq.size(); ++i)
         {
+            if (pPath[i].x >= img.cols || pPath[i].y >= img.rows)
+                continue;
+
             cv::Vec <float, cn> val = pointSeq[i][labelSeq[i]];
             img.template at<cv::Vec <float, cn> >(pPath[i]) = val;
         }
@@ -292,23 +301,15 @@ namespace xphoto
                 shiftMapInpaint <Tp, cn>(src, mask, dst);
                 break;
             default:
-                CV_Error_( CV_StsNotImplemented,
+                CV_Error_( Error::StsNotImplemented,
                     ("Unsupported algorithm type (=%d)", algorithmType) );
                 break;
         }
     }
 
-    /*! The function reconstructs the selected image area from known area.
-    *  \param src : source image.
-    *  \param mask : inpainting mask, 8-bit 1-channel image. Zero pixels indicate the area that needs to be inpainted.
-    *  \param dst : destination image.
-    *  \param algorithmType : inpainting method.
-    */
-    void inpaint(const Mat &src, const Mat &mask, Mat &dst, const int algorithmType)
+    static
+    void inpaint_shiftmap(const Mat &src, const Mat &mask, Mat &dst, const int algorithmType)
     {
-        CV_Assert( mask.channels() == 1 && mask.depth() == CV_8U );
-        CV_Assert( src.rows == mask.rows && src.cols == mask.cols );
-
         switch ( src.type() )
         {
             case CV_8SC1:
@@ -324,16 +325,16 @@ namespace xphoto
                 inpaint <char,   4>( src, mask, dst, algorithmType );
                 break;
             case CV_8UC1:
-                inpaint <uchar,  1>( src, mask, dst, algorithmType );
+                inpaint <uint8_t,  1>( src, mask, dst, algorithmType );
                 break;
             case CV_8UC2:
-                inpaint <uchar,  2>( src, mask, dst, algorithmType );
+                inpaint <uint8_t,  2>( src, mask, dst, algorithmType );
                 break;
             case CV_8UC3:
-                inpaint <uchar,  3>( src, mask, dst, algorithmType );
+                inpaint <uint8_t,  3>( src, mask, dst, algorithmType );
                 break;
             case CV_8UC4:
-                inpaint <uchar,  4>( src, mask, dst, algorithmType );
+                inpaint <uint8_t,  4>( src, mask, dst, algorithmType );
                 break;
             case CV_16SC1:
                 inpaint <short,  1>( src, mask, dst, algorithmType );
@@ -396,11 +397,28 @@ namespace xphoto
                 inpaint <double, 4>( src, mask, dst, algorithmType );
                 break;
             default:
-                CV_Error_( CV_StsNotImplemented,
+                CV_Error_( Error::StsNotImplemented,
                     ("Unsupported source image format (=%d)",
                     src.type()) );
-                break;
         }
     }
+
+void inpaint(const Mat &src, const Mat &mask, Mat &dst, const int algorithmType)
+{
+    CV_Assert(!src.empty());
+    CV_Assert(!mask.empty());
+    CV_CheckTypeEQ(mask.type(), CV_8UC1, "");
+    CV_Assert(src.rows == mask.rows && src.cols == mask.cols);
+
+    switch (algorithmType)
+    {
+        case xphoto::INPAINT_SHIFTMAP:
+            return inpaint_shiftmap(src, mask, dst, algorithmType);
+        case xphoto::INPAINT_FSR_BEST:
+        case xphoto::INPAINT_FSR_FAST:
+            return inpaint_fsr(src, mask, dst, algorithmType);
+    }
+    CV_Error_(Error::StsNotImplemented, ("Unsupported inpainting algorithm type (=%d)", algorithmType));
 }
-}
+
+}}  // namespace

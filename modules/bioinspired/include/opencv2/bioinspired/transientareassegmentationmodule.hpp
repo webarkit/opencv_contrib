@@ -161,7 +161,7 @@ public:
     /** @brief parameters setup display method
     @return a string which contains formatted parameters information
     */
-    CV_WRAP virtual const String printSetup()=0;
+    CV_WRAP virtual String printSetup()=0;
 
     /** @brief write xml/yml formated parameters information
     @param fs : the filename of the xml file that will be open and writen with formatted parameters information
@@ -180,8 +180,8 @@ public:
     CV_WRAP virtual void run(InputArray inputToSegment, const int channelIndex=0)=0;
 
     /** @brief access function
-    @return the last segmentation result: a boolean picture which is resampled between 0 and 255 for a display purpose
-   */
+    return the last segmentation result: a boolean picture which is resampled between 0 and 255 for a display purpose
+    */
     CV_WRAP virtual void getSegmentationPicture(OutputArray transientAreas)=0;
 
     /** @brief cleans all the buffers of the instance

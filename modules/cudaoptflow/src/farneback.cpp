@@ -129,6 +129,8 @@ namespace
 
         virtual void calc(InputArray I0, InputArray I1, InputOutputArray flow, Stream& stream);
 
+        virtual String getDefaultName() const { return "DenseOpticalFlow.FarnebackOpticalFlow"; }
+
     private:
         int numLevels_;
         double pyrScale_;
@@ -138,6 +140,7 @@ namespace
         int polyN_;
         double polySigma_;
         int flags_;
+        Event sourceStreamComplete;
 
     private:
         void prepareGaussian(
@@ -315,7 +318,10 @@ namespace
 
         Stream streams[5];
         if (stream)
+        {
             streams[0] = stream;
+            sourceStreamComplete.record();
+        }
 
         Size size = frame0.size();
         GpuMat prevFlowX, prevFlowY, curFlowX, curFlowY;
@@ -334,6 +340,8 @@ namespace
         }
 
         frame0.convertTo(frames_[0], CV_32F, streams[0]);
+        if (stream)
+            streams[1].waitEvent(sourceStreamComplete);
         frame1.convertTo(frames_[1], CV_32F, streams[1]);
 
         if (fastPyramids_)

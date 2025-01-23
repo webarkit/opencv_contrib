@@ -45,6 +45,8 @@
 #include "opencv2/core/cuda/common.hpp"
 #include "opencv2/core/cuda/border_interpolate.hpp"
 #include "opencv2/core/cuda/limits.hpp"
+#include "opencv2/core/cuda.hpp"
+#include <opencv2/cudev/ptr2d/texture.hpp>
 
 using namespace cv::cuda;
 using namespace cv::cuda::device;
@@ -101,11 +103,9 @@ namespace tvl1flow
         }
     }
 
-    texture<float, cudaTextureType2D, cudaReadModeElementType> tex_I1 (false, cudaFilterModePoint, cudaAddressModeClamp);
-    texture<float, cudaTextureType2D, cudaReadModeElementType> tex_I1x(false, cudaFilterModePoint, cudaAddressModeClamp);
-    texture<float, cudaTextureType2D, cudaReadModeElementType> tex_I1y(false, cudaFilterModePoint, cudaAddressModeClamp);
-
-    __global__ void warpBackwardKernel(const PtrStepSzf I0, const PtrStepf u1, const PtrStepf u2, PtrStepf I1w, PtrStepf I1wx, PtrStepf I1wy, PtrStepf grad, PtrStepf rho)
+    __global__ void warpBackwardKernel(
+        const PtrStepSzf I0, const cv::cudev::TexturePtr<float> I1, const cv::cudev::TexturePtr<float> I1x, const cv::cudev::TexturePtr<float> I1y, const PtrStepf u1, const PtrStepf u2,
+        PtrStepf I1w, PtrStepf I1wx, PtrStepf I1wy, PtrStepf grad, PtrStepf rho)
     {
         const int x = blockIdx.x * blockDim.x + threadIdx.x;
         const int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -135,11 +135,9 @@ namespace tvl1flow
             for (int cx = xmin; cx <= xmax; ++cx)
             {
                 const float w = bicubicCoeff(wx - cx) * bicubicCoeff(wy - cy);
-
-                sum  += w * tex2D(tex_I1 , cx, cy);
-                sumx += w * tex2D(tex_I1x, cx, cy);
-                sumy += w * tex2D(tex_I1y, cx, cy);
-
+                sum  += w * I1(cy, cx);
+                sumx += w * I1x(cy, cx);
+                sumy += w * I1y(cy, cx);
                 wsum += w;
             }
         }
@@ -170,18 +168,14 @@ namespace tvl1flow
                       PtrStepSzf I1wy, PtrStepSzf grad, PtrStepSzf rho,
                       cudaStream_t stream)
     {
+        cv::cudev::Texture<float> texI1(I1);
+        cv::cudev::Texture<float> texI1x(I1x);
+        cv::cudev::Texture<float> texI1y(I1y);
         const dim3 block(32, 8);
         const dim3 grid(divUp(I0.cols, block.x), divUp(I0.rows, block.y));
-
-        bindTexture(&tex_I1 , I1);
-        bindTexture(&tex_I1x, I1x);
-        bindTexture(&tex_I1y, I1y);
-
-        warpBackwardKernel<<<grid, block, 0, stream>>>(I0, u1, u2, I1w, I1wx, I1wy, grad, rho);
-        cudaSafeCall( cudaGetLastError() );
-
+        warpBackwardKernel<<<grid, block, 0, stream>>>(I0, texI1, texI1x, texI1y , u1, u2, I1w, I1wx, I1wy, grad, rho);
         if (!stream)
-            cudaSafeCall( cudaDeviceSynchronize() );
+            cudaSafeCall(cudaDeviceSynchronize());
     }
 }
 

@@ -274,6 +274,10 @@ CV_EXPORTS_W void bitwise_xor(InputArray src1, InputArray src2, OutputArray dst,
  */
 CV_EXPORTS void rshift(InputArray src, Scalar_<int> val, OutputArray dst, Stream& stream = Stream::Null());
 
+CV_WRAP inline void rshift(InputArray src, Scalar val, OutputArray dst, Stream& stream = Stream::Null()) {
+    rshift(src, Scalar_<int>(val), dst, stream);
+}
+
 /** @brief Performs pixel by pixel right left of an image by a constant value.
 
 @param src Source matrix. Supports 1, 3 and 4 channels images with CV_8U , CV_16U or CV_32S
@@ -283,6 +287,10 @@ depth.
 @param stream Stream for the asynchronous version.
  */
 CV_EXPORTS void lshift(InputArray src, Scalar_<int> val, OutputArray dst, Stream& stream = Stream::Null());
+
+CV_WRAP inline void lshift(InputArray src, Scalar val, OutputArray dst, Stream& stream = Stream::Null()) {
+    lshift(src, Scalar_<int>(val), dst, stream);
+}
 
 /** @brief Computes the per-element minimum of two matrices (or a matrix and a scalar).
 
@@ -349,6 +357,31 @@ threshold types are not supported.
 @sa threshold
  */
 CV_EXPORTS_W double threshold(InputArray src, OutputArray dst, double thresh, double maxval, int type, Stream& stream = Stream::Null());
+
+/** @brief  Checks if array elements lie between two scalars.
+
+The function checks the range as follows:
+-   For every element of a single-channel input array:
+    \f[\texttt{dst} (I)= \texttt{lowerb}_0  \leq \texttt{src} (I)_0 \leq  \texttt{upperb}_0\f]
+-   For two-channel arrays:
+    \f[\texttt{dst} (I)= \texttt{lowerb}_0  \leq \texttt{src} (I)_0 \leq  \texttt{upperb}_0  \land \texttt{lowerb}_1  \leq \texttt{src} (I)_1 \leq  \texttt{upperb}_1\f]
+-   and so forth.
+
+That is, dst (I) is set to 255 (all 1 -bits) if src (I) is within the
+specified 1D, 2D, 3D, ... box and 0 otherwise.
+
+Note that unlike the CPU inRange, this does NOT accept an array for lowerb or
+upperb, only a cv::Scalar.
+
+@param src first input array.
+@param lowerb inclusive lower boundary cv::Scalar.
+@param upperb inclusive upper boundary cv::Scalar.
+@param dst output array of the same size as src and CV_8U type.
+@param stream Stream for the asynchronous version.
+
+@sa cv::inRange
+ */
+CV_EXPORTS_W void inRange(InputArray src, const Scalar& lowerb, const Scalar& upperb, OutputArray dst, Stream& stream = Stream::Null());
 
 /** @brief Computes magnitudes of complex matrix elements.
 
@@ -438,7 +471,7 @@ CV_EXPORTS_W void polarToCart(InputArray magnitude, InputArray angle, OutputArra
 
 @sa merge
  */
-CV_EXPORTS_W void merge(const GpuMat* src, size_t n, OutputArray dst, Stream& stream = Stream::Null());
+CV_EXPORTS void merge(const GpuMat* src, size_t n, OutputArray dst, Stream& stream = Stream::Null());
 /** @overload */
 CV_EXPORTS_W void merge(const std::vector<GpuMat>& src, OutputArray dst, Stream& stream = Stream::Null());
 
@@ -450,9 +483,9 @@ CV_EXPORTS_W void merge(const std::vector<GpuMat>& src, OutputArray dst, Stream&
 
 @sa split
  */
-CV_EXPORTS_W void split(InputArray src, GpuMat* dst, Stream& stream = Stream::Null());
+CV_EXPORTS void split(InputArray src, GpuMat* dst, Stream& stream = Stream::Null());
 /** @overload */
-CV_EXPORTS_W void split(InputArray src, std::vector<GpuMat>& dst, Stream& stream = Stream::Null());
+CV_EXPORTS_W void split(InputArray src, CV_OUT std::vector<GpuMat>& dst, Stream& stream = Stream::Null());
 
 /** @brief Transposes a matrix.
 
@@ -505,9 +538,9 @@ CV_EXPORTS_W Ptr<LookUpTable> createLookUpTable(InputArray lut);
 @param src Source image. CV_8UC1 , CV_8UC4 , CV_32SC1 , and CV_32FC1 types are supported.
 @param dst Destination image with the same type as src. The size is
 Size(src.cols+left+right, src.rows+top+bottom) .
-@param top
-@param bottom
-@param left
+@param top Number of top pixels
+@param bottom Number of bottom pixels
+@param left Number of left pixels
 @param right Number of pixels in each direction from the source image rectangle to extrapolate.
 For example: top=1, bottom=1, left=1, right=1 mean that 1 pixel-wide border needs to be built.
 @param borderType Border type. See borderInterpolate for details. BORDER_REFLECT101 ,
@@ -587,7 +620,7 @@ The function does not work with CV_64F images on GPUs with the compute capabilit
 
 @sa minMaxLoc
  */
-CV_EXPORTS_W void minMax(InputArray src, double* minVal, double* maxVal, InputArray mask = noArray());
+CV_EXPORTS_W void minMax(InputArray src, CV_OUT double* minVal, CV_OUT double* maxVal, InputArray mask = noArray());
 /** @overload */
 CV_EXPORTS_W void findMinMax(InputArray src, OutputArray dst, InputArray mask = noArray(), Stream& stream = Stream::Null());
 
@@ -604,7 +637,7 @@ The function does not work with CV_64F images on GPU with the compute capability
 
 @sa minMaxLoc
  */
-CV_EXPORTS_W void minMaxLoc(InputArray src, double* minVal, double* maxVal, Point* minLoc, Point* maxLoc,
+CV_EXPORTS_W void minMaxLoc(InputArray src, CV_OUT double* minVal, CV_OUT double* maxVal, CV_OUT Point* minLoc, CV_OUT Point* maxLoc,
                           InputArray mask = noArray());
 /** @overload */
 CV_EXPORTS_W void findMinMaxLoc(InputArray src, OutputArray minMaxVals, OutputArray loc,
@@ -629,11 +662,11 @@ CV_EXPORTS_W void countNonZero(InputArray src, OutputArray dst, Stream& stream =
 @param dim Dimension index along which the matrix is reduced. 0 means that the matrix is reduced
 to a single row. 1 means that the matrix is reduced to a single column.
 @param reduceOp Reduction operation that could be one of the following:
--   **CV_REDUCE_SUM** The output is the sum of all rows/columns of the matrix.
--   **CV_REDUCE_AVG** The output is the mean vector of all rows/columns of the matrix.
--   **CV_REDUCE_MAX** The output is the maximum (column/row-wise) of all rows/columns of the
+-   **REDUCE_SUM** The output is the sum of all rows/columns of the matrix.
+-   **REDUCE_AVG** The output is the mean vector of all rows/columns of the matrix.
+-   **REDUCE_MAX** The output is the maximum (column/row-wise) of all rows/columns of the
 matrix.
--   **CV_REDUCE_MIN** The output is the minimum (column/row-wise) of all rows/columns of the
+-   **REDUCE_MIN** The output is the minimum (column/row-wise) of all rows/columns of the
 matrix.
 @param dtype When it is negative, the destination vector will have the same type as the source
 matrix. Otherwise, its type will be CV_MAKE_TYPE(CV_MAT_DEPTH(dtype), mtx.channels()) .
@@ -642,7 +675,7 @@ matrix. Otherwise, its type will be CV_MAKE_TYPE(CV_MAT_DEPTH(dtype), mtx.channe
 The function reduce reduces the matrix to a vector by treating the matrix rows/columns as a set of
 1D vectors and performing the specified operation on the vectors until a single row/column is
 obtained. For example, the function can be used to compute horizontal and vertical projections of a
-raster image. In case of CV_REDUCE_SUM and CV_REDUCE_AVG , the output may have a larger element
+raster image. In case of REDUCE_SUM and REDUCE_AVG , the output may have a larger element
 bit-depth to preserve accuracy. And multi-channel arrays are also supported in these two reduction
 modes.
 
@@ -652,21 +685,39 @@ CV_EXPORTS_W void reduce(InputArray mtx, OutputArray vec, int dim, int reduceOp,
 
 /** @brief Computes a mean value and a standard deviation of matrix elements.
 
-@param mtx Source matrix. CV_8UC1 matrices are supported for now.
-@param mean Mean value.
-@param stddev Standard deviation value.
+@param src Source matrix. CV_8UC1 and CV_32FC1 matrices are supported for now.
+@param dst Target GpuMat with size 1x2 and type CV_64FC1. The first value is mean, the second - stddev.
+@param mask Operation mask.
+@param stream Stream for the asynchronous version.
 
 @sa meanStdDev
  */
-CV_EXPORTS_W void meanStdDev(InputArray mtx, Scalar& mean, Scalar& stddev);
-/** @overload */
+CV_EXPORTS_W void meanStdDev(InputArray src, OutputArray dst, InputArray mask, Stream& stream = Stream::Null());
+/** @overload
+@param mtx Source matrix. CV_8UC1 and CV_32FC1 matrices are supported for now.
+@param dst Target GpuMat with size 1x2 and type CV_64FC1. The first value is mean, the second - stddev.
+@param stream Stream for the asynchronous version.
+ */
 CV_EXPORTS_W void meanStdDev(InputArray mtx, OutputArray dst, Stream& stream = Stream::Null());
+/** @overload
+@param src Source matrix. CV_8UC1 and CV_32FC1 matrices are supported for now.
+@param mean Mean value.
+@param stddev Standard deviation value.
+@param mask Operation mask.
+ */
+CV_EXPORTS_W void meanStdDev(InputArray src, CV_OUT Scalar& mean, CV_OUT Scalar& stddev, InputArray mask);
+/** @overload
+@param mtx Source matrix. CV_8UC1 and CV_32FC1 matrices are supported for now.
+@param mean Mean value.
+@param stddev Standard deviation value.
+ */
+CV_EXPORTS_W void meanStdDev(InputArray mtx, CV_OUT Scalar& mean, CV_OUT Scalar& stddev);
 
 /** @brief Computes a standard deviation of integral images.
 
 @param src Source image. Only the CV_32SC1 type is supported.
 @param sqr Squared source image. Only the CV_32FC1 type is supported.
-@param dst Destination image with the same type and size as src .
+@param dst Destination image with the same type and size as src.
 @param rect Rectangular window.
 @param stream Stream for the asynchronous version.
  */
@@ -858,7 +909,7 @@ public:
     @param ccorr Flags to evaluate cross-correlation instead of convolution.
     @param stream Stream for the asynchronous version.
      */
-    virtual void convolve(InputArray image, InputArray templ, OutputArray result, bool ccorr = false, Stream& stream = Stream::Null()) = 0;
+    CV_WRAP virtual void convolve(InputArray image, InputArray templ, OutputArray result, bool ccorr = false, Stream& stream = Stream::Null()) = 0;
 };
 
 /** @brief Creates implementation for cuda::Convolution .

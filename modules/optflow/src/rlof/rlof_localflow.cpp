@@ -4,7 +4,6 @@
 #include "../precomp.hpp"
 
 #include "opencv2/calib3d.hpp"  // findHomography
-#include "opencv2/highgui.hpp"
 #include "rlof_localflow.h"
 #include "berlof_invoker.hpp"
 #include "rlof_invoker.hpp"
@@ -53,8 +52,8 @@ static void calcSharrDeriv(const cv::Mat& src, cv::Mat& dst)
                 v_int16x8 s1 = v_reinterpret_as_s16(v_load_expand(srow1 + x));
                 v_int16x8 s2 = v_reinterpret_as_s16(v_load_expand(srow2 + x));
 
-                v_int16x8 t1 = s2 - s0;
-                v_int16x8 t0 = v_mul_wrap(s0 + s2, c3) + v_mul_wrap(s1, c10);
+                v_int16x8 t1 = v_sub(s2, s0);
+                v_int16x8 t0 = v_add(v_mul_wrap(v_add(s0, s2), c3), v_mul_wrap(s1, c10));
 
                 v_store(trow0 + x, t0);
                 v_store(trow1 + x, t1);
@@ -91,8 +90,8 @@ static void calcSharrDeriv(const cv::Mat& src, cv::Mat& dst)
                 v_int16x8 s3 = v_load(trow1 + x);
                 v_int16x8 s4 = v_load(trow1 + x + cn);
 
-                v_int16x8 t0 = s1 - s0;
-                v_int16x8 t1 = v_mul_wrap(s2 + s4, c3) + v_mul_wrap(s3, c10);
+                v_int16x8 t0 = v_sub(s1, s0);
+                v_int16x8 t1 = v_add(v_mul_wrap(v_add(s2, s4), c3), v_mul_wrap(s3, c10));
 
                 v_store_interleave((drow + x * 2), t0, t1);
             }
@@ -354,11 +353,15 @@ int buildOpticalFlowPyramidScale(InputArray _img, OutputArrayOfArrays pyramid, S
 
     return maxLevel;
 }
-int CImageBuffer::buildPyramid(cv::Size winSize, int maxLevel, float levelScale[2])
+
+int CImageBuffer::buildPyramid(cv::Size winSize, int maxLevel, float levelScale[2],bool withBlurredImage )
 {
-    if (m_Overwrite == false)
+    if (! m_Overwrite)
         return m_maxLevel;
-    m_maxLevel = buildOpticalFlowPyramidScale(m_Image, m_ImagePyramid, winSize, maxLevel, false, 4, 0, true, levelScale);
+    if (withBlurredImage)
+        m_maxLevel = buildOpticalFlowPyramidScale(m_BlurredImage, m_ImagePyramid, winSize, maxLevel, false, 4, 0, true, levelScale);
+    else
+        m_maxLevel = buildOpticalFlowPyramidScale(m_Image, m_ImagePyramid, winSize, maxLevel, false, 4, 0, true, levelScale);
     return m_maxLevel;
 }
 
@@ -407,12 +410,12 @@ void calcLocalOpticalFlowCore(
     float levelScale[2] = { 2.f,2.f };
 
     int maxLevel = prevPyramids[0]->buildPyramid(cv::Size(iWinSize, iWinSize), param.maxLevel, levelScale);
-
     maxLevel = currPyramids[0]->buildPyramid(cv::Size(iWinSize, iWinSize), maxLevel, levelScale);
+
     if (useAdditionalRGB)
     {
-        prevPyramids[1]->buildPyramid(cv::Size(iWinSize, iWinSize), maxLevel, levelScale);
-        currPyramids[1]->buildPyramid(cv::Size(iWinSize, iWinSize), maxLevel, levelScale);
+        prevPyramids[1]->buildPyramid(cv::Size(iWinSize, iWinSize), maxLevel, levelScale, true);
+        currPyramids[1]->buildPyramid(cv::Size(iWinSize, iWinSize), maxLevel, levelScale, true);
     }
 
     if ((criteria.type & TermCriteria::COUNT) == 0)
@@ -467,16 +470,32 @@ void calcLocalOpticalFlowCore(
         {
             if (param.useIlluminationModel)
             {
-                cv::parallel_for_(cv::Range(0, npoints),
-                    plk::radial::TrackerInvoker(
-                        prevImage, derivI, currImage, tRGBPrevPyr, tRGBNextPyr,
-                        prevPts, nextPts, &status[0], &err[0], &gainPts[0],
-                        level, maxLevel, winSizes,
-                        param.maxIteration,
-                        param.useInitialFlow,
-                        param.supportRegionType,
-                        param.minEigenValue,
-                        param.crossSegmentationThreshold));
+                if (param.solverType == SolverType::ST_STANDART)
+                {
+                    cv::parallel_for_(cv::Range(0, npoints),
+                        plk::radial::TrackerInvoker(
+                            prevImage, derivI, currImage, tRGBPrevPyr, tRGBNextPyr,
+                            prevPts, nextPts, &status[0], &err[0], &gainPts[0],
+                            level, maxLevel, winSizes,
+                            param.maxIteration,
+                            param.useInitialFlow,
+                            param.supportRegionType,
+                            param.minEigenValue,
+                            param.crossSegmentationThreshold));
+                }
+                else
+                {
+                    cv::parallel_for_(cv::Range(0, npoints),
+                        beplk::radial::TrackerInvoker(
+                            prevImage, derivI, currImage, tRGBPrevPyr, tRGBNextPyr,
+                            prevPts, nextPts, &status[0], &err[0], &gainPts[0],
+                            level, maxLevel, winSizes,
+                            param.maxIteration,
+                            param.useInitialFlow,
+                            param.supportRegionType,
+                            param.crossSegmentationThreshold,
+                            param.minEigenValue));
+                }
             }
             else
             {
@@ -661,7 +680,8 @@ void calcLocalOpticalFlow(
         prevPyramids[0]->m_Overwrite = true;
         currPyramids[0]->m_Overwrite = true;
         prevPyramids[1]->m_Overwrite = true;
-        currPyramids[1]->m_Overwrite = true;
+        // perform blurring and build blur pyramid only for the prev image
+        currPyramids[1]->m_Overwrite = false;
         if (prevImage.type() == CV_8UC3)
         {
             prevPyramids[0]->setGrayFromRGB(prevImage);

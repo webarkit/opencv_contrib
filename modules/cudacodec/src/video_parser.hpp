@@ -44,44 +44,40 @@
 #ifndef __VIDEO_PARSER_HPP__
 #define __VIDEO_PARSER_HPP__
 
-#if CUDA_VERSION >= 9000 && CUDA_VERSION < 10000
-    #include <dynlink_nvcuvid.h>
-#else
-    #include <nvcuvid.h>
-#endif
-
-#include "opencv2/core/private.cuda.hpp"
-#include "opencv2/cudacodec.hpp"
 #include "frame_queue.hpp"
 #include "video_decoder.hpp"
 
-namespace cv { namespace cudacodec { namespace detail
-{
+namespace cv { namespace cudacodec { namespace detail {
 
 class VideoParser
 {
 public:
-    VideoParser(VideoDecoder* videoDecoder, FrameQueue* frameQueue);
+    VideoParser(VideoDecoder* videoDecoder, FrameQueue* frameQueue, const bool allowFrameDrop = false, const bool udpSource = false);
 
     ~VideoParser()
     {
         cuvidDestroyVideoParser(parser_);
     }
 
-    bool parseVideoData(const unsigned char* data, size_t size, bool endOfStream);
+    bool parseVideoData(const unsigned char* data, size_t size, const bool rawMode, const bool containsKeyFrame, bool endOfStream);
 
     bool hasError() const { return hasError_; }
 
+    bool udpSource() const { return  maxUnparsedPackets_ == 0; }
+
+    bool allowFrameDrops() const { return allowFrameDrop_; }
+
 private:
-    VideoDecoder* videoDecoder_;
-    FrameQueue* frameQueue_;
+    VideoDecoder* videoDecoder_ = 0;
+    FrameQueue* frameQueue_ = 0;
     CUvideoparser parser_;
-    int unparsedPackets_;
-    volatile bool hasError_;
+    int unparsedPackets_ = 0;
+    int maxUnparsedPackets_ = 20;
+    std::vector<RawPacket> currentFramePackets;
+    volatile bool hasError_ = false;
+    bool allowFrameDrop_ = false;
 
     // Called when the decoder encounters a video format change (or initial sequence header)
-    // This particular implementation of the callback returns 0 in case the video format changes
-    // to something different than the original format. Returning 0 causes a stop of the app.
     static int CUDAAPI HandleVideoSequence(void* pUserData, CUVIDEOFORMAT* pFormat);
 
     // Called by the video parser to decode a single picture

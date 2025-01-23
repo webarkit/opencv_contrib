@@ -49,20 +49,35 @@ using namespace cv;
 using namespace cv::cudacodec;
 using namespace cv::cudacodec::detail;
 
-bool cv::cudacodec::detail::VideoSource::parseVideoData(const unsigned char* data, size_t size, bool endOfStream)
+bool cv::cudacodec::detail::VideoSource::parseVideoData(const unsigned char* data, size_t size, const bool rawMode, const bool containsKeyFrame, bool endOfStream)
 {
-    return videoParser_->parseVideoData(data, size, endOfStream);
+    return videoParser_->parseVideoData(data, size, rawMode, containsKeyFrame, endOfStream);
 }
 
-cv::cudacodec::detail::RawVideoSourceWrapper::RawVideoSourceWrapper(const Ptr<RawVideoSource>& source) :
+cv::cudacodec::detail::RawVideoSourceWrapper::RawVideoSourceWrapper(const Ptr<RawVideoSource>& source, const bool rawMode) :
     source_(source)
 {
+    SetRawMode(rawMode);
     CV_Assert( !source_.empty() );
 }
 
 cv::cudacodec::FormatInfo cv::cudacodec::detail::RawVideoSourceWrapper::format() const
 {
     return source_->format();
+}
+
+void cv::cudacodec::detail::RawVideoSourceWrapper::updateFormat(const FormatInfo& videoFormat)
+{
+    source_->updateFormat(videoFormat);
+}
+
+bool cv::cudacodec::detail::RawVideoSourceWrapper::get(const int propertyId, double& propertyVal) const
+{
+    return source_->get(propertyId, propertyVal);
+}
+
+int cv::cudacodec::detail::RawVideoSourceWrapper::getFirstFrameIdx() const {
+    return source_->getFirstFrameIdx();
 }
 
 void cv::cudacodec::detail::RawVideoSourceWrapper::start()
@@ -96,16 +111,27 @@ void cv::cudacodec::detail::RawVideoSourceWrapper::readLoop(void* userData)
     for (;;)
     {
         unsigned char* data;
-        int size;
-        bool endOfFile;
+        size_t size;
 
-        if (!thiz->source_->getNextPacket(&data, &size, &endOfFile))
+        if (!thiz->source_->getNextPacket(&data, &size))
         {
-            thiz->hasError_ = !endOfFile;
+            thiz->hasError_ = false;
             break;
         }
 
-        if (!thiz->parseVideoData(data, size))
+        bool containsKeyFrame = false;
+        if (thiz->RawModeEnabled()) {
+            containsKeyFrame = thiz->source_->lastPacketContainsKeyFrame();
+            if (!thiz->extraDataQueried) {
+                thiz->extraDataQueried = true;
+                Mat extraData;
+                thiz->source_->getExtraData(extraData);
+                if(!extraData.empty())
+                    thiz->setExtraData(extraData);
+            }
+        }
+
+        if (!thiz->parseVideoData(data, size, thiz->RawModeEnabled(), containsKeyFrame))
         {
             thiz->hasError_ = true;
             break;
@@ -115,7 +141,8 @@ void cv::cudacodec::detail::RawVideoSourceWrapper::readLoop(void* userData)
             break;
     }
 
-    thiz->parseVideoData(0, 0, true);
+    if(!thiz->hasError_)
+        thiz->parseVideoData(0, 0, false, false, true);
 }
 
 #endif // HAVE_NVCUVID

@@ -246,6 +246,7 @@ static hashtable_int* getHashtable(int* data, size_t length, int numMaxElement)
 int ICP::registerModelToScene(const Mat& srcPC, const Mat& dstPC, double& residual, Matx44d& pose)
 {
   int n = srcPC.rows;
+  CV_CheckGT(n, 0, "");
 
   const bool useRobustReject = m_rejectionScale>0;
 
@@ -280,10 +281,7 @@ int ICP::registerModelToScene(const Mat& srcPC, const Mat& dstPC, double& residu
   // walk the pyramid
   for (int level = m_numLevels-1; level >=0; level--)
   {
-    const double impact = 2;
-    double div = pow((double)impact, (double)level);
-    //double div2 = div*div;
-    const int numSamples = cvRound((double)(n/(div)));
+    const int numSamples = divUp(n, 1 << level);
     const double TolP = m_tolerance*(double)(level+1)*(level+1);
     const int MaxIterationsPyr = cvRound((double)m_maxIterations/(level+1));
 
@@ -369,7 +367,7 @@ int ICP::registerModelToScene(const Mat& srcPC, const Mat& dstPC, double& residu
         if (node)
         {
           // select the first node
-          size_t idx = reinterpret_cast<size_t>(node->data)-1, dn=0;
+          size_t idx = reinterpret_cast<size_t>(node->data)-1;
           int dup = (int)node->key-1;
           size_t minIdxD = idx;
           float minDist = distances[idx];
@@ -385,7 +383,6 @@ int ICP::registerModelToScene(const Mat& srcPC, const Mat& dstPC, double& residu
             }
 
             node = node->next;
-            dn++;
           }
 
           indicesModel[ selInd ] = newI[ minIdxD ];

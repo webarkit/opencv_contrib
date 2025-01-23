@@ -40,6 +40,11 @@
 //
 //M*/
 
+// Details on this algorithm can be found in:
+// Green, O., 2017. "Efficient scalable median filtering using histogram-based operations",
+//                   IEEE Transactions on Image Processing, 27(5), pp.2217-2228.
+
+
 #if !defined CUDA_DISABLER
 
 #include "opencv2/core/cuda/common.hpp"
@@ -48,11 +53,19 @@
 #include "opencv2/core/cuda/saturate_cast.hpp"
 #include "opencv2/core/cuda/border_interpolate.hpp"
 
+
+// The CUB library is used for the Median Filter with Wavelet Matrix,
+// which has become a standard library since CUDA 11.
+#include "wavelet_matrix_feature_support_checks.h"
+#ifdef __OPENCV_USE_WAVELET_MATRIX_FOR_MEDIAN_FILTER_CUDA__
+#include "wavelet_matrix_multi.cuh"
+#include "wavelet_matrix_2d.cuh"
+#include "wavelet_matrix_float_supporter.cuh"
+#endif
+
+
 namespace cv { namespace cuda { namespace device
 {
-    // // namespace imgproc
-    // {
-
         __device__ void histogramAddAndSub8(int* H, const int * hist_colAdd,const int * hist_colSub){
             int tx = threadIdx.x;
             if (tx<8){
@@ -120,6 +133,25 @@ namespace cv { namespace cuda { namespace device
                 luc[tx]=0;
         }
 
+#define scanNeighbor(array, range, index, threadIndex)             \
+        {                                                          \
+            int v = 0;                                             \
+            if (index <= threadIndex && threadIndex < range)       \
+                v = array[threadIndex] + array[threadIndex-index]; \
+            __syncthreads();                                       \
+            if (index <= threadIndex && threadIndex < range)       \
+                array[threadIndex] = v;                            \
+        }
+#define findMedian(array, range, threadIndex, result, count, position) \
+        if (threadIndex < range)                                       \
+        {                                                              \
+            if (array[threadIndex+1] > position && array[threadIndex] <= position) \
+            {                                                          \
+                *result = threadIndex+1;                               \
+                *count  = array[threadIndex];                          \
+            }                                                          \
+        }
+
         __device__ void histogramMedianPar8LookupOnly(int* H,int* Hscan, const int medPos,int* retval, int* countAtMed){
             int tx=threadIdx.x;
             *retval=*countAtMed=0;
@@ -127,28 +159,14 @@ namespace cv { namespace cuda { namespace device
                 Hscan[tx]=H[tx];
             }
             __syncthreads();
-            if (1 <= tx && tx < 8 )
-                Hscan[tx]+=Hscan[tx-1];
+            scanNeighbor(Hscan, 8, 1, tx);
             __syncthreads();
-            if (2 <= tx && tx < 8 )
-                Hscan[tx]+=Hscan[tx-2];
+            scanNeighbor(Hscan, 8, 2, tx);
             __syncthreads();
-            if (4 <= tx && tx < 8 )
-                Hscan[tx]+=Hscan[tx-4];
+            scanNeighbor(Hscan, 8, 4, tx);
             __syncthreads();
 
-            if(tx<7){
-                if(Hscan[tx+1] > medPos && Hscan[tx] < medPos){
-                    *retval=tx+1;
-                    *countAtMed=Hscan[tx];
-                }
-                else if(Hscan[tx]==medPos){
-                  if(Hscan[tx+1]>medPos){
-                     *retval=tx+1;
-                     *countAtMed=Hscan[tx];
-                  }
-                }
-            }
+            findMedian(Hscan, 7, tx, retval, countAtMed, medPos);
         }
 
         __device__ void histogramMedianPar32LookupOnly(int* H,int* Hscan, const int medPos,int* retval, int* countAtMed){
@@ -158,33 +176,18 @@ namespace cv { namespace cuda { namespace device
                 Hscan[tx]=H[tx];
             }
             __syncthreads();
-            if ( 1 <= tx && tx < 32 )
-                Hscan[tx]+=Hscan[tx-1];
+            scanNeighbor(Hscan, 32,  1, tx);
             __syncthreads();
-            if ( 2 <= tx && tx < 32 )
-                Hscan[tx]+=Hscan[tx-2];
+            scanNeighbor(Hscan, 32,  2, tx);
             __syncthreads();
-            if ( 4 <= tx && tx < 32 )
-                Hscan[tx]+=Hscan[tx-4];
+            scanNeighbor(Hscan, 32,  4, tx);
             __syncthreads();
-            if ( 8 <= tx && tx < 32 )
-                Hscan[tx]+=Hscan[tx-8];
+            scanNeighbor(Hscan, 32,  8, tx);
             __syncthreads();
-            if ( 16 <= tx && tx < 32 )
-                Hscan[tx]+=Hscan[tx-16];
+            scanNeighbor(Hscan, 32, 16, tx);
             __syncthreads();
-            if(tx<31){
-                if(Hscan[tx+1] > medPos && Hscan[tx] < medPos){
-                    *retval=tx+1;
-                    *countAtMed=Hscan[tx];
-                }
-                else if(Hscan[tx]==medPos){
-                  if(Hscan[tx+1]>medPos){
-                      *retval=tx+1;
-                      *countAtMed=Hscan[tx];
-                  }
-                }
-            }
+
+            findMedian(Hscan, 31, tx, retval, countAtMed, medPos);
          }
 
     __global__ void cuMedianFilterMultiBlock(PtrStepSzb src, PtrStepSzb  dest, PtrStepSzi histPar, PtrStepSzi coarseHistGrid,int r, int medPos_)
@@ -283,7 +286,6 @@ namespace cv { namespace cuda { namespace device
             __syncthreads();
 
             histogramMultipleAdd8(HCoarse,histCoarse, 2*r+1);
-//            __syncthreads();
             int cols_m_1=cols-1;
 
              for(int j=r;j<cols-r;j++){
@@ -295,23 +297,24 @@ namespace cv { namespace cuda { namespace device
                 histogramMedianPar8LookupOnly(HCoarse,HCoarseScan,medPos, &firstBin,&countAtMed);
                 __syncthreads();
 
-                if ( luc[firstBin] <= (j-r))
+                int loopIndex = luc[firstBin];
+                if (loopIndex <= (j-r))
                 {
                     histogramClear32(HFine[firstBin]);
-                    for ( luc[firstBin] = j-r; luc[firstBin] < ::min(j+r+1,cols); luc[firstBin]++ ){
-                        histogramAdd32(HFine[firstBin], hist+(luc[firstBin]*256+(firstBin<<5) ) );
+                    for ( loopIndex = j-r; loopIndex < ::min(j+r+1,cols); loopIndex++ ){
+                        histogramAdd32(HFine[firstBin], hist+(loopIndex*256+(firstBin<<5) ) );
                     }
                 }
                 else{
-                    for ( ; luc[firstBin] < (j+r+1);luc[firstBin]++ ) {
+                    for ( ; loopIndex < (j+r+1);loopIndex++ ) {
                         histogramAddAndSub32(HFine[firstBin],
-                        hist+(::min(luc[firstBin],cols_m_1)*256+(firstBin<<5) ),
-                        hist+(::max(luc[firstBin]-2*r-1,0)*256+(firstBin<<5) ) );
+                        hist+(::min(loopIndex,cols_m_1)*256+(firstBin<<5) ),
+                        hist+(::max(loopIndex-2*r-1,0)*256+(firstBin<<5) ) );
                         __syncthreads();
-
                     }
                 }
                 __syncthreads();
+                luc[firstBin] = loopIndex;
 
                 int leftOver=medPos-countAtMed;
                 if(leftOver>=0){
@@ -341,5 +344,73 @@ namespace cv { namespace cuda { namespace device
     }
 
 }}}
+
+
+#ifdef __OPENCV_USE_WAVELET_MATRIX_FOR_MEDIAN_FILTER_CUDA__
+namespace cv { namespace cuda { namespace device
+    {
+        using namespace wavelet_matrix_median;
+
+        template<int CH_NUM, typename T>
+        void medianFiltering_wavelet_matrix_gpu(const PtrStepSz<T> src, PtrStepSz<T> dst, int radius,cudaStream_t stream){
+
+            constexpr bool is_float = std::is_same<T, float>::value;
+            constexpr static int WORD_SIZE = 32;
+            constexpr static int ThW = (std::is_same<T, uint8_t>::value ?  8 : 4);
+            constexpr static int ThH = (std::is_same<T, uint8_t>::value ? 64 : 256);
+            using XYIdxT = uint32_t;
+            using XIdxT = uint16_t;
+            using WM_T = typename std::conditional<is_float, uint32_t, T>::type;
+            using MedianResT = typename std::conditional<is_float, T, std::nullptr_t>::type;
+            using WM2D_IMPL = WaveletMatrix2dCu5C<WM_T, CH_NUM, WaveletMatrixMultiCu4G<XIdxT, 512>, 512, WORD_SIZE>;
+
+            CV_Assert(src.cols == dst.cols);
+            CV_Assert(dst.step % sizeof(T) == 0);
+
+            WM2D_IMPL WM_cuda(src.rows, src.cols, is_float, false);
+            WM_cuda.res_cu =  reinterpret_cast<WM_T*>(dst.ptr());
+
+            const size_t line_num = src.cols * CH_NUM;
+            if (is_float) {
+                WMMedianFloatSupporter::WMMedianFloatSupporter<float, CH_NUM, XYIdxT> float_supporter(src.rows, src.cols);
+                float_supporter.alloc();
+                for (int y = 0; y < src.rows; ++y) {
+                    cudaMemcpy(float_supporter.val_in_cu + y * line_num, src.ptr(y), line_num * sizeof(T), cudaMemcpyDeviceToDevice);
+                }
+                const auto p = WM_cuda.get_nowcu_and_buf_byte_div32();
+                float_supporter.sort_and_set((XYIdxT*)p.first, p.second);
+                WM_cuda.construct(nullptr, stream, true);
+                WM_cuda.template median2d<ThW, ThH, MedianResT, false>(radius, dst.step / sizeof(T), (MedianResT*)float_supporter.get_res_table(), stream);
+            } else {
+                for (int y = 0; y < src.rows; ++y) {
+                    cudaMemcpy(WM_cuda.src_cu + y * line_num, src.ptr(y), line_num * sizeof(T), cudaMemcpyDeviceToDevice);
+                }
+                WM_cuda.construct(nullptr, stream);
+                WM_cuda.template median2d<ThW, ThH, MedianResT, false>(radius, dst.step / sizeof(T), nullptr, stream);
+            }
+            WM_cuda.res_cu = nullptr;
+            if (!stream) {
+                cudaSafeCall( cudaDeviceSynchronize() );
+            }
+        }
+
+        template<typename T>
+        void medianFiltering_wavelet_matrix_gpu(const PtrStepSz<T> src, PtrStepSz<T> dst, int radius, const int num_channels, cudaStream_t stream){
+            if (num_channels == 1) {
+                medianFiltering_wavelet_matrix_gpu<1>(src, dst, radius, stream);
+            } else if (num_channels == 3) {
+                medianFiltering_wavelet_matrix_gpu<3>(src, dst, radius, stream);
+            } else if (num_channels == 4) {
+                medianFiltering_wavelet_matrix_gpu<4>(src, dst, radius, stream);
+            } else {
+                CV_Assert(num_channels == 1 || num_channels == 3 || num_channels == 4);
+            }
+        }
+
+        template void medianFiltering_wavelet_matrix_gpu(const PtrStepSz<uint8_t>  src, PtrStepSz<uint8_t>  dst, int radius, const int num_channels, cudaStream_t stream);
+        template void medianFiltering_wavelet_matrix_gpu(const PtrStepSz<uint16_t> src, PtrStepSz<uint16_t> dst, int radius, const int num_channels, cudaStream_t stream);
+        template void medianFiltering_wavelet_matrix_gpu(const PtrStepSz<float>    src, PtrStepSz<float>    dst, int radius, const int num_channels, cudaStream_t stream);
+}}}
+#endif // __OPENCV_USE_WAVELET_MATRIX_FOR_MEDIAN_FILTER_CUDA__
 
 #endif

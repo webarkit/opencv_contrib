@@ -72,7 +72,7 @@ CV_EXPORTS
 cudaStream_t nppStSetActiveCUDAstream(cudaStream_t cudaStream);
 
 
-/*@}*/
+/** @} */
 
 
 /** \defgroup nppi NPPST Image Processing
@@ -174,7 +174,7 @@ NCVStatus nppiStInterpolateFrames(const NppStInterpolationState *pState);
  * \return NCV status code
  */
 CV_EXPORTS
-NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
+NCVStatus nppiStFilterRowBorder_32f_C1R(Ncv32f *pSrc,
                                         NcvSize32u srcSize,
                                         Ncv32u nSrcStep,
                                         Ncv32f *pDst,
@@ -182,7 +182,7 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
                                         Ncv32u nDstStep,
                                         NcvRect32u oROI,
                                         NppStBorderType borderType,
-                                        const Ncv32f *pKernel,
+                                        Ncv32f *pKernel,
                                         Ncv32s nKernelSize,
                                         Ncv32s nAnchor,
                                         Ncv32f multiplier);
@@ -208,7 +208,7 @@ NCVStatus nppiStFilterRowBorder_32f_C1R(const Ncv32f *pSrc,
  * \return NCV status code
  */
 CV_EXPORTS
-NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
+NCVStatus nppiStFilterColumnBorder_32f_C1R(Ncv32f *pSrc,
                                            NcvSize32u srcSize,
                                            Ncv32u nSrcStep,
                                            Ncv32f *pDst,
@@ -216,7 +216,7 @@ NCVStatus nppiStFilterColumnBorder_32f_C1R(const Ncv32f *pSrc,
                                            Ncv32u nDstStep,
                                            NcvRect32u oROI,
                                            NppStBorderType borderType,
-                                           const Ncv32f *pKernel,
+                                           Ncv32f *pKernel,
                                            Ncv32s nKernelSize,
                                            Ncv32s nAnchor,
                                            Ncv32f multiplier);
@@ -319,7 +319,7 @@ NCVStatus nppiStVectorWarp_PSF2x2_32f_C1(const Ncv32f *pSrc,
  * \return NCV status code
  */
 CV_EXPORTS
-NCVStatus nppiStResize_32f_C1R(const Ncv32f *pSrc,
+NCVStatus nppiStResize_32f_C1R(Ncv32f *pSrc,
                                NcvSize32u srcSize,
                                Ncv32u nSrcStep,
                                NcvRect32u srcROI,
@@ -787,7 +787,7 @@ NCVStatus nppiStSqrIntegral_8u64u_C1R_host(Ncv8u *h_src, Ncv32u srcStep,
                                            Ncv64u *h_dst, Ncv32u dstStep, NcvSize32u roiSize);
 
 
-/*@}*/
+/** @} */
 
 
 /** \defgroup npps NPPST Signal Processing
@@ -899,8 +899,8 @@ NCVStatus nppsStCompact_32f_host(Ncv32f *h_src, Ncv32u srcLen,
                                  Ncv32f *h_dst, Ncv32u *dstLen, Ncv32f elemRemove);
 
 
-/*@}*/
+/** @} */
 
-//! @}
+//! @} cudalegacy
 
 #endif // _npp_staging_hpp_

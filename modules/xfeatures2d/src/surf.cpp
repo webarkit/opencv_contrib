@@ -7,7 +7,7 @@
  *
  * There are still serveral lacks for this experimental implementation:
  * 1.The interpolation of sub-pixel mentioned in article was not implemented yet;
- * 2.A comparision with original libSurf.so shows that the hessian detector is not a 100% match to their implementation;
+ * 2.A comparison with original libSurf.so shows that the hessian detector is not a 100% match to their implementation;
  * 3.Due to above reasons, I recommanded the original one for study and reuse;
  *
  * However, the speed of this implementation is something comparable to original one.
@@ -1020,7 +1020,6 @@ Ptr<SURF> SURF::create(double _threshold, int _nOctaves, int _nOctaveLayers, boo
     return makePtr<SURF_Impl>(_threshold, _nOctaves, _nOctaveLayers, _extended, _upright);
 }
 
-
 #else // ! #ifdef OPENCV_ENABLE_NONFREE
 Ptr<SURF> SURF::create(double, int, int, bool, bool)
 {
@@ -1029,6 +1028,11 @@ Ptr<SURF> SURF::create(double, int, int, bool, bool)
         "Set OPENCV_ENABLE_NONFREE CMake option and rebuild the library");
 }
 #endif
+
+String SURF::getDefaultName() const
+{
+    return (Feature2D::getDefaultName() + ".SURF");
+}
 
 }
 }

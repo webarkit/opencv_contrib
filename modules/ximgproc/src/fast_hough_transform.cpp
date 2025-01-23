@@ -238,7 +238,7 @@ void fhtVo(Mat    &img0,
         fhtVoT<T, D, FHT_MIN>(img0, img1, isPositiveShift, aspl);
         break;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown operation %d", operation));
+        CV_Error_(Error::StsNotImplemented, ("Unknown operation %d", operation));
         break;
     }
 }
@@ -274,7 +274,7 @@ static void fhtVo(Mat    &img0,
         fhtVo<double, CV_64FC1>(img0, img1, isPositiveShift, operation, aspl);
         break;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown depth %d", depth));
+        CV_Error_(Error::StsNotImplemented, ("Unknown depth %d", depth));
         break;
     }
 }
@@ -292,10 +292,6 @@ static void FHT(Mat       &dst,
         CV_Assert(src.cols == dst.cols && src.rows == dst.rows);
     else
         CV_Assert(src.cols == dst.rows && src.rows == dst.cols);
-
-    int level = 0;
-    for (int thres = 1; dst.rows > thres; thres <<= 1)
-        level++;
 
     Mat tmp;
     src.convertTo(tmp, dst.type());
@@ -345,7 +341,7 @@ static void calculateFHTQuadrant(Mat       &dst,
         aspl = 0.5;
         break;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown quadrant %d", quadrant));
+        CV_Error_(Error::StsNotImplemented, ("Unknown quadrant %d", quadrant));
     }
 
   FHT(dst, src, operation, bVert, bClock, aspl);
@@ -385,7 +381,7 @@ static void createDstFhtMat(OutputArray dst,
         ht = 2 * (cols + rows) - 3;
         break;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown angleRange %d", angleRange));
+        CV_Error_(Error::StsNotImplemented, ("Unknown angleRange %d", angleRange));
     }
 
     dst.create(ht, wd, CV_MAKETYPE(depth, channels));
@@ -411,7 +407,7 @@ static void createFHTSrc(Mat       &srcFull,
         verticalTiling = true;
         break;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown angleRange %d", angleRange));
+        CV_Error_(Error::StsNotImplemented, ("Unknown angleRange %d", angleRange));
     }
 
     int wd = verticalTiling ? src.cols : src.cols + src.rows;
@@ -454,7 +450,7 @@ static void setFHTDstRegion(Mat       &dstRegion,
         base = 3;
         break;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown angleRange %d", angleRange));
+        CV_Error_(Error::StsNotImplemented, ("Unknown angleRange %d", angleRange));
     }
 
     int quad = -1;
@@ -473,7 +469,7 @@ static void setFHTDstRegion(Mat       &dstRegion,
         quad = 3;
         break;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown quadrant %d", quadrant));
+        CV_Error_(Error::StsNotImplemented, ("Unknown quadrant %d", quadrant));
     }
 
     if (quad < base)
@@ -532,7 +528,7 @@ static void skewQuadrant(Mat         &quad,
         start = wd * .5 - 0.5;
         break;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown quadrant %d", quadrant));
+        CV_Error_(Error::StsNotImplemented, ("Unknown quadrant %d", quadrant));
     }
 
     const int pixlen = static_cast<int>(quad.elemSize());
@@ -664,7 +660,7 @@ void FastHoughTransform(InputArray  src,
             skewQuadrant(dstMat, imgSrc, buf, angleRange);
         return;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown angleRange %d", angleRange));
+        CV_Error_(Error::StsNotImplemented, ("Unknown angleRange %d", angleRange));
     }
 }
 
@@ -704,7 +700,7 @@ static void getRawPoint(Point       &rawHoughPoint,
         base = 3;
         break;
     default:
-        CV_Error_(CV_StsNotImplemented, ("Unknown angleRange %d", angleRange));
+        CV_Error_(Error::StsNotImplemented, ("Unknown angleRange %d", angleRange));
     }
 
     int const cols = srcImgInfo.cols;
@@ -720,7 +716,7 @@ static void getRawPoint(Point       &rawHoughPoint,
         rawHoughPoint.y -= qsize;
     }
     if (quad >= 4)
-        CV_Error(CV_StsInternal, "");
+        CV_Error(Error::StsInternal, "");
 
     quadRawPoint = quad;
 

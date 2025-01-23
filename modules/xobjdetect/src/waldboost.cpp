@@ -73,14 +73,14 @@ static void compute_min_step(const Mat &data_pos, const Mat &data_neg, size_t n_
 
     Mat reduced_pos, reduced_neg;
 
-    reduce(data_pos, reduced_pos, 1, CV_REDUCE_MIN);
-    reduce(data_neg, reduced_neg, 1, CV_REDUCE_MIN);
+    reduce(data_pos, reduced_pos, 1, REDUCE_MIN);
+    reduce(data_neg, reduced_neg, 1, REDUCE_MIN);
     min(reduced_pos, reduced_neg, data_min);
     data_min -= 0.01;
 
     Mat data_max;
-    reduce(data_pos, reduced_pos, 1, CV_REDUCE_MAX);
-    reduce(data_neg, reduced_neg, 1, CV_REDUCE_MAX);
+    reduce(data_pos, reduced_pos, 1, REDUCE_MAX);
+    reduce(data_neg, reduced_neg, 1, REDUCE_MAX);
     max(reduced_pos, reduced_neg, data_max);
     data_max += 0.01;
 
@@ -333,7 +333,14 @@ void WaldBoost::fit(Mat& data_pos, Mat& data_neg)
 
 
         if (loss < 1e-50 || min_err > 0.5) {
-            std::cerr << "Stopping early" << std::endl;
+            std::cerr << "Stopping early. loss=" << loss << " min_err=" << min_err << std::endl;
+            weak_count_ = i + 1;
+            break;
+        }
+
+        // Avoid crashing on next Mat creation
+        if (pos <= 1) {
+            std::cerr << "Stopping early. pos=" << pos << std::endl;
             weak_count_ = i + 1;
             break;
         }

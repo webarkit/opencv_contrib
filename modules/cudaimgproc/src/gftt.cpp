@@ -55,8 +55,8 @@ namespace cv { namespace cuda { namespace device
 {
     namespace gfft
     {
-        int findCorners_gpu(PtrStepSzf eig, float threshold, PtrStepSzb mask, float2* corners, int max_count, cudaStream_t stream);
-        void sortCorners_gpu(PtrStepSzf eig, float2* corners, int count, cudaStream_t stream);
+        int findCorners_gpu(const PtrStepSzf eig, float threshold, PtrStepSzb mask, float2* corners, int max_count, int* counterPtr, cudaStream_t stream);
+        void sortCorners_gpu(const PtrStepSzf eig, float2* corners, int count, cudaStream_t stream);
     }
 }}}
 
@@ -67,9 +67,10 @@ namespace
     public:
         GoodFeaturesToTrackDetector(int srcType, int maxCorners, double qualityLevel, double minDistance,
                                     int blockSize, bool useHarrisDetector, double harrisK);
-
+        ~GoodFeaturesToTrackDetector();
         void detect(InputArray image, OutputArray corners, InputArray mask, Stream& stream);
-
+        void setMaxCorners(int maxCorners) CV_OVERRIDE { maxCorners_ = maxCorners; }
+        void setMinDistance(double minDistance) CV_OVERRIDE { minDistance_ = minDistance; }
     private:
         int maxCorners_;
         double qualityLevel_;
@@ -82,6 +83,8 @@ namespace
         GpuMat buf_;
         GpuMat eig_;
         GpuMat tmpCorners_;
+
+        int* counterPtr_;
     };
 
     GoodFeaturesToTrackDetector::GoodFeaturesToTrackDetector(int srcType, int maxCorners, double qualityLevel, double minDistance,
@@ -93,6 +96,12 @@ namespace
         cornerCriteria_ = useHarrisDetector ?
                     cuda::createHarrisCorner(srcType, blockSize, 3, harrisK) :
                     cuda::createMinEigenValCorner(srcType, blockSize, 3);
+        cudaSafeCall(cudaMalloc(&counterPtr_, sizeof(int)));
+    }
+
+    GoodFeaturesToTrackDetector::~GoodFeaturesToTrackDetector()
+    {
+        cudaSafeCall(cudaFree(counterPtr_));
     }
 
     void GoodFeaturesToTrackDetector::detect(InputArray _image, OutputArray _corners, InputArray _mask, Stream& stream)
@@ -112,7 +121,7 @@ namespace
         cudaStream_t stream_ = StreamAccessor::getStream(stream);
         ensureSizeIsEnough(1, std::max(1000, static_cast<int>(image.size().area() * 0.05)), CV_32FC2, tmpCorners_);
 
-        int total = findCorners_gpu(eig_, static_cast<float>(maxVal * qualityLevel_), mask, tmpCorners_.ptr<float2>(), tmpCorners_.cols, stream_);
+        int total = findCorners_gpu(eig_, static_cast<float>(maxVal * qualityLevel_), mask, tmpCorners_.ptr<float2>(), tmpCorners_.cols, counterPtr_, stream_);
 
         if (total == 0)
         {

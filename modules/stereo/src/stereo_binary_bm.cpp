@@ -341,15 +341,6 @@ namespace cv
                 }
 
                 Mat left = preFilteredImg0, right = preFilteredImg1;
-
-                int ndisp = params.numDisparities;
-
-                int wsz = params.kernelSize;
-                int bufSize0 = (int)((ndisp + 2)*sizeof(int));
-                bufSize0 += (int)((height + wsz + 2)*ndisp*sizeof(int));
-                bufSize0 += (int)((height + wsz + 2)*sizeof(int));
-                bufSize0 += (int)((height + wsz + 2)*ndisp*(wsz + 2)*sizeof(uchar) + 256);
-
                 int bufSize1 = (int)((width + params.preFilterSize + 2) * sizeof(int) + 256);
                 if(params.usePrefilter == true)
                 {
@@ -384,21 +375,16 @@ namespace cv
                 }
                 else if(params.kernelType == CV_MEAN_VARIATION)
                 {
-                    parSumsIntensityImage[0].create(left0.rows, left0.cols,CV_32SC4);
-                    parSumsIntensityImage[1].create(left0.rows, left0.cols,CV_32SC4);
-                    Integral[0].create(left0.rows,left0.cols,CV_32SC4);
-                    Integral[1].create(left0.rows,left0.cols,CV_32SC4);
-                    integral(left, parSumsIntensityImage[0],CV_32S);
-                    integral(right, parSumsIntensityImage[1],CV_32S);
-                    imageMeanKernelSize(parSumsIntensityImage[0], params.kernelSize,Integral[0]);
-                    imageMeanKernelSize(parSumsIntensityImage[1], params.kernelSize, Integral[1]);
-                    modifiedCensusTransform(left,right,params.kernelSize,censusImage[0],censusImage[1],CV_MEAN_VARIATION,0,Integral[0], Integral[1]);
+                    Mat blurLeft; blur(left, blurLeft, Size(params.kernelSize, params.kernelSize));
+                    Mat blurRight; blur(right, blurRight, Size(params.kernelSize, params.kernelSize));
+                    modifiedCensusTransform(left, right, params.kernelSize, censusImage[0], censusImage[1], CV_MEAN_VARIATION, 0,
+                            blurLeft, blurRight);
                 }
                 else if(params.kernelType == CV_STAR_KERNEL)
                 {
                     starCensusTransform(left,right,params.kernelSize,censusImage[0],censusImage[1]);
                 }
-                hammingDistanceBlockMatching(censusImage[0], censusImage[1], hammingDistance);
+                hammingDistanceBlockMatching(censusImage[0], censusImage[1], hammingDistance, params.kernelSize);
                 costGathering(hammingDistance, partialSumsLR);
                 blockAgregation(partialSumsLR, params.agregationWindowSize, agregatedHammingLRCost);
                 dispartyMapFormation(agregatedHammingLRCost, disp0, 3);
@@ -407,7 +393,7 @@ namespace cv
 
                 if(params.regionRemoval == CV_SPECKLE_REMOVAL_AVG_ALGORITHM)
                 {
-                    smallRegionRemoval<uint8_t>(disp0,params.speckleWindowSize,disp0);
+                    smallRegionRemoval<uint8_t>(disp0.clone(),params.speckleWindowSize,disp0);
                 }
                 else if(params.regionRemoval == CV_SPECKLE_REMOVAL_ALGORITHM)
                 {
@@ -502,8 +488,6 @@ namespace cv
             StereoBinaryBMParams params;
             Mat preFilteredImg0, preFilteredImg1, cost, dispbuf;
             Mat slidingSumBuf;
-            Mat parSumsIntensityImage[2];
-            Mat Integral[2];
             Mat censusImage[2];
             Mat hammingDistance;
             Mat partialSumsLR;
